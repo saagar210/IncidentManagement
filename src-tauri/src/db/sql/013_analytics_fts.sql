@@ -46,4 +46,4 @@ END;
 CREATE TRIGGER incidents_fts_delete AFTER DELETE ON incidents BEGIN
     INSERT INTO incidents_fts(incidents_fts, rowid, title, root_cause, resolution, lessons_learned, notes)
     VALUES ('delete', old.rowid, old.title, COALESCE(old.root_cause, ''), COALESCE(old.resolution, ''), COALESCE(old.lessons_learned, ''), COALESCE(old.notes, ''));
-END
+END;
