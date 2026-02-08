@@ -47,6 +47,8 @@ export interface BackupImportResult {
   incidents: number;
   action_items: number;
   quarter_configs: number;
+  custom_field_definitions: number;
+  custom_field_values: number;
   settings: number;
   errors: string[];
 }

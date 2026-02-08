@@ -38,10 +38,7 @@ export function BackupConfig() {
     }
 
     try {
-      // Default SQLite path for Tauri apps
-      const dbPath = "incidents.db";
       const path = await createBackup.mutateAsync({
-        dbPath,
         backupDir,
       });
       toast({

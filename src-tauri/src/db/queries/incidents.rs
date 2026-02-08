@@ -530,15 +530,73 @@ pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -
         )));
     }
 
-    let mut tx = db.begin()
+    let mut tx = db
+        .begin()
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
     for id in ids {
+        let existing = sqlx::query(
+            "SELECT status, acknowledged_at, resolved_at, reopened_at, reopen_count FROM incidents WHERE id = ? AND deleted_at IS NULL"
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?
+        .ok_or_else(|| AppError::NotFound(format!("Incident '{}' not found", id)))?;
+
+        let existing_status: String = existing.get("status");
+        let existing_acknowledged_at: Option<String> = existing.get("acknowledged_at");
+        let existing_resolved_at: Option<String> = existing.get("resolved_at");
+        let existing_reopened_at: Option<String> = existing.get("reopened_at");
+        let existing_reopen_count: i64 = existing.get("reopen_count");
+
+        let status_changed = status != existing_status;
+        if status_changed {
+            let allowed = allowed_transitions(&existing_status);
+            if !allowed.contains(&status) {
+                return Err(AppError::Validation(format!(
+                    "Cannot transition from '{}' to '{}'. Allowed: {}",
+                    existing_status,
+                    status,
+                    allowed.join(", ")
+                )));
+            }
+        }
+
+        let reopen_count = if status_changed && is_reopen(&existing_status, status) {
+            existing_reopen_count + 1
+        } else {
+            existing_reopen_count
+        };
+        let reopened_at = if status_changed && is_reopen(&existing_status, status) {
+            Some(now.clone())
+        } else {
+            existing_reopened_at
+        };
+        let acknowledged_at =
+            if status_changed && status == "Acknowledged" && existing_acknowledged_at.is_none() {
+                Some(now.clone())
+            } else {
+                existing_acknowledged_at
+            };
+        let resolved_at = if status_changed && status == "Resolved" && existing_resolved_at.is_none() {
+            Some(now.clone())
+        } else {
+            existing_resolved_at
+        };
+
         sqlx::query(
-            "UPDATE incidents SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?"
+            "UPDATE incidents SET status = ?, acknowledged_at = ?, resolved_at = ?, reopened_at = ?, reopen_count = ?, updated_at = ? WHERE id = ?"
         )
         .bind(status)
+        .bind(acknowledged_at)
+        .bind(resolved_at)
+        .bind(reopened_at)
+        .bind(reopen_count)
+        .bind(&now)
         .bind(id)
         .execute(&mut *tx)
         .await
@@ -733,5 +791,103 @@ fn parse_action_item(row: &sqlx::sqlite::SqliteRow) -> ActionItem {
         incident_title: row.get::<Option<String>, _>("incident_title"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bulk_update_status, get_incident_by_id, insert_incident};
+    use crate::db::migrations::run_migrations;
+    use crate::models::incident::CreateIncidentRequest;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::str::FromStr;
+    use tempfile::tempdir;
+
+    async fn setup_db() -> (tempfile::TempDir, sqlx::SqlitePool, String) {
+        let dir = tempdir().expect("tempdir");
+        let db_path = dir.path().join("incidents-query-tests.db");
+        let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+        let options = SqliteConnectOptions::from_str(&db_url)
+            .expect("sqlite url")
+            .journal_mode(SqliteJournalMode::Wal)
+            .pragma("foreign_keys", "ON")
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        let service_id: String = sqlx::query_scalar("SELECT id FROM services LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("seeded service");
+        (dir, pool, service_id)
+    }
+
+    fn make_create_request(service_id: &str, status: &str) -> CreateIncidentRequest {
+        CreateIncidentRequest {
+            title: "Bulk Update Test".into(),
+            service_id: service_id.to_string(),
+            severity: "High".into(),
+            impact: "High".into(),
+            status: status.to_string(),
+            started_at: "2026-01-01T10:00:00Z".into(),
+            detected_at: "2026-01-01T10:01:00Z".into(),
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
+            responded_at: None,
+            resolved_at: if status == "Resolved" {
+                Some("2026-01-01T11:00:00Z".into())
+            } else {
+                None
+            },
+            root_cause: String::new(),
+            resolution: String::new(),
+            tickets_submitted: 0,
+            affected_users: 0,
+            is_recurring: false,
+            recurrence_of: None,
+            lessons_learned: String::new(),
+            action_items: String::new(),
+            external_ref: String::new(),
+            notes: String::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn bulk_update_status_rejects_invalid_transition() {
+        let (_dir, pool, service_id) = setup_db().await;
+        let request = make_create_request(&service_id, "Active");
+        insert_incident(&pool, "inc-test-1", &request)
+            .await
+            .expect("insert incident");
+
+        let err = bulk_update_status(&pool, &["inc-test-1".to_string()], "Post-Mortem")
+            .await
+            .expect_err("invalid transition should fail");
+
+        assert!(format!("{}", err).contains("Cannot transition"));
+    }
+
+    #[tokio::test]
+    async fn bulk_update_status_sets_reopen_metadata() {
+        let (_dir, pool, service_id) = setup_db().await;
+        let request = make_create_request(&service_id, "Resolved");
+        insert_incident(&pool, "inc-test-2", &request)
+            .await
+            .expect("insert incident");
+
+        bulk_update_status(&pool, &["inc-test-2".to_string()], "Active")
+            .await
+            .expect("bulk update");
+
+        let updated = get_incident_by_id(&pool, "inc-test-2")
+            .await
+            .expect("get incident");
+        assert_eq!(updated.status, "Active");
+        assert_eq!(updated.reopen_count, 1);
+        assert!(updated.reopened_at.is_some());
     }
 }

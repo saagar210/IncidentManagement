@@ -3,9 +3,11 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use tauri::State;
 
+use crate::db::queries::incidents;
 use crate::error::AppError;
 use crate::import::column_mapper::{self, ColumnMapping, MappedIncident};
 use crate::import::csv_parser;
+use crate::models::incident::CreateIncidentRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportPreview {
@@ -311,30 +313,32 @@ async fn insert_imported_incident(
 ) -> Result<(), AppError> {
     let id = format!("inc-{}", uuid::Uuid::new_v4());
 
-    sqlx::query(
-        "INSERT INTO incidents (id, title, service_id, severity, impact, status, started_at, detected_at, responded_at, resolved_at, root_cause, resolution, tickets_submitted, affected_users, is_recurring, lessons_learned, external_ref, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    )
-    .bind(&id)
-    .bind(&incident.title)
-    .bind(service_id)
-    .bind(&incident.severity)
-    .bind(&incident.impact)
-    .bind(&incident.status)
-    .bind(&incident.started_at)
-    .bind(&incident.detected_at)
-    .bind(&incident.responded_at)
-    .bind(&incident.resolved_at)
-    .bind(&incident.root_cause)
-    .bind(&incident.resolution)
-    .bind(incident.tickets_submitted)
-    .bind(incident.affected_users)
-    .bind(incident.is_recurring)
-    .bind(&incident.lessons_learned)
-    .bind(&incident.external_ref)
-    .bind(&incident.notes)
-    .execute(db)
-    .await
-    .map_err(|e| AppError::Database(e.to_string()))?;
+    let req = CreateIncidentRequest {
+        title: incident.title.clone(),
+        service_id: service_id.to_string(),
+        severity: incident.severity.clone(),
+        impact: incident.impact.clone(),
+        status: incident.status.clone(),
+        started_at: incident.started_at.clone(),
+        detected_at: incident.detected_at.clone(),
+        acknowledged_at: None,
+        first_response_at: None,
+        mitigation_started_at: None,
+        responded_at: incident.responded_at.clone(),
+        resolved_at: incident.resolved_at.clone(),
+        root_cause: incident.root_cause.clone(),
+        resolution: incident.resolution.clone(),
+        tickets_submitted: incident.tickets_submitted,
+        affected_users: incident.affected_users,
+        is_recurring: incident.is_recurring,
+        recurrence_of: None,
+        lessons_learned: incident.lessons_learned.clone(),
+        action_items: String::new(),
+        external_ref: incident.external_ref.clone(),
+        notes: incident.notes.clone(),
+    };
+    req.validate()?;
+    incidents::insert_incident(db, &id, &req).await?;
 
     Ok(())
 }
@@ -346,5 +350,101 @@ fn parse_template_row(row: &sqlx::sqlite::SqliteRow) -> ImportTemplate {
         column_mapping: row.get("column_mapping"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::insert_imported_incident;
+    use crate::db::migrations::run_migrations;
+    use crate::import::column_mapper::MappedIncident;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::str::FromStr;
+    use tempfile::tempdir;
+
+    async fn setup_db() -> (tempfile::TempDir, sqlx::SqlitePool) {
+        let dir = tempdir().expect("tempdir");
+        let db_path = dir.path().join("import-tests.db");
+        let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+        let options = SqliteConnectOptions::from_str(&db_url)
+            .expect("sqlite url")
+            .journal_mode(SqliteJournalMode::Wal)
+            .pragma("foreign_keys", "ON")
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        (dir, pool)
+    }
+
+    fn mapped_incident(overrides: impl FnOnce(&mut MappedIncident)) -> MappedIncident {
+        let mut incident = MappedIncident {
+            title: "CSV Imported Incident".into(),
+            service_name: "PagerDuty".into(),
+            severity: "High".into(),
+            impact: "High".into(),
+            status: "Active".into(),
+            started_at: "2026-01-01T10:00:00Z".into(),
+            detected_at: "2026-01-01T10:05:00Z".into(),
+            responded_at: None,
+            resolved_at: None,
+            root_cause: String::new(),
+            resolution: String::new(),
+            tickets_submitted: 1,
+            affected_users: 10,
+            is_recurring: false,
+            lessons_learned: String::new(),
+            external_ref: String::new(),
+            notes: String::new(),
+            warnings: vec![],
+            errors: vec![],
+        };
+        overrides(&mut incident);
+        incident
+    }
+
+    #[tokio::test]
+    async fn insert_imported_incident_rejects_invalid_date_order() {
+        let (_dir, pool) = setup_db().await;
+        let service_id: String = sqlx::query_scalar("SELECT id FROM services LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("seeded service");
+
+        let incident = mapped_incident(|inc| {
+            inc.detected_at = "2026-01-01T09:59:00Z".into();
+        });
+
+        let err = insert_imported_incident(&pool, &service_id, &incident)
+            .await
+            .expect_err("expected validation error");
+        assert!(format!("{}", err).contains("Detected at must be on or after started at"));
+    }
+
+    #[tokio::test]
+    async fn insert_imported_incident_inserts_valid_row() {
+        let (_dir, pool) = setup_db().await;
+        let service_id: String = sqlx::query_scalar("SELECT id FROM services LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("seeded service");
+
+        let incident = mapped_incident(|inc| {
+            inc.status = "Resolved".into();
+            inc.resolved_at = Some("2026-01-01T11:00:00Z".into());
+        });
+
+        insert_imported_incident(&pool, &service_id, &incident)
+            .await
+            .expect("insert succeeds");
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM incidents")
+            .fetch_one(&pool)
+            .await
+            .expect("count incidents");
+        assert_eq!(count, 1);
     }
 }

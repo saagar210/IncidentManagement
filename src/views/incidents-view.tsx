@@ -67,6 +67,15 @@ function formatDate(dateStr: string): string {
 
 type ViewMode = "table" | "timeline";
 
+export function matchesIncidentSearch(inc: Incident, searchLower: string): boolean {
+  const externalRef = (inc.external_ref ?? "").toLowerCase();
+  return (
+    inc.title.toLowerCase().includes(searchLower) ||
+    inc.service_name.toLowerCase().includes(searchLower) ||
+    externalRef.includes(searchLower)
+  );
+}
+
 export function IncidentsView() {
   const navigate = useNavigate();
   const [searchText, setSearchText] = useState("");
@@ -86,12 +95,7 @@ export function IncidentsView() {
     if (!incidents) return [];
     if (!debouncedSearch) return incidents;
     const lower = debouncedSearch.toLowerCase();
-    return incidents.filter(
-      (inc: Incident) =>
-        inc.title.toLowerCase().includes(lower) ||
-        inc.service_name.toLowerCase().includes(lower) ||
-        inc.external_ref?.toLowerCase().includes(lower)
-    );
+    return incidents.filter((inc: Incident) => matchesIncidentSearch(inc, lower));
   }, [incidents, debouncedSearch]);
 
   const totalPages = Math.max(1, Math.ceil(filteredIncidents.length / PAGE_SIZE));

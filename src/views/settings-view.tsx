@@ -725,6 +725,12 @@ function ImportDataTab() {
       if (result.incidents > 0) parts.push(`${result.incidents} incidents`);
       if (result.action_items > 0) parts.push(`${result.action_items} action items`);
       if (result.quarter_configs > 0) parts.push(`${result.quarter_configs} quarters`);
+      if (result.custom_field_definitions > 0) {
+        parts.push(`${result.custom_field_definitions} custom fields`);
+      }
+      if (result.custom_field_values > 0) {
+        parts.push(`${result.custom_field_values} custom field values`);
+      }
       if (result.settings > 0) parts.push(`${result.settings} settings`);
 
       toast({

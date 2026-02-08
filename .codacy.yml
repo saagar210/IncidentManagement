@@ -1,0 +1,4 @@
+---
+exclude_paths:
+  - "src/views/incidents-view.test.ts"
+  - "src/views/reports-view.test.tsx"

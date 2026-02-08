@@ -137,9 +137,13 @@ export function ServiceDetailView() {
     }
   };
 
-  const handleRemoveDep = async (depId: string) => {
+  const handleRemoveDep = async (depId: string, serviceId: string, dependsOnServiceId: string) => {
     try {
-      await removeDependency.mutateAsync(depId);
+      await removeDependency.mutateAsync({
+        id: depId,
+        serviceId,
+        dependsOnServiceId,
+      });
       toast({ title: "Dependency removed" });
     } catch (err) {
       toast({
@@ -386,7 +390,13 @@ export function ServiceDetailView() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => handleRemoveDep(dep.id)}
+                          onClick={() =>
+                            handleRemoveDep(
+                              dep.id,
+                              dep.service_id,
+                              dep.depends_on_service_id
+                            )
+                          }
                           disabled={removeDependency.isPending}
                         >
                           <Trash2 className="h-3.5 w-3.5 text-destructive" />

@@ -1,5 +1,5 @@
 -- Migration 010: Service Catalog Enhancement
--- Adds owner, tier, runbook to services; creates service_dependencies table
+-- Adds owner, tier, runbook to services and creates service_dependencies table
 
 ALTER TABLE services ADD COLUMN owner TEXT NOT NULL DEFAULT '';
 

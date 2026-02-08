@@ -98,7 +98,7 @@ export function useAddServiceDependency() {
         queryKey: ["service-dependencies", variables.service_id],
       });
       queryClient.invalidateQueries({
-        queryKey: ["service-dependents"],
+        queryKey: ["service-dependents", variables.depends_on_service_id],
       });
     },
   });
@@ -107,11 +107,21 @@ export function useAddServiceDependency() {
 export function useRemoveServiceDependency() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
+    mutationFn: ({
+      id,
+    }: {
+      id: string;
+      serviceId: string;
+      dependsOnServiceId: string;
+    }) =>
       tauriInvoke<void>("remove_service_dependency", { id }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["service-dependencies"] });
-      queryClient.invalidateQueries({ queryKey: ["service-dependents"] });
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["service-dependencies", variables.serviceId],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["service-dependents", variables.dependsOnServiceId],
+      });
     },
   });
 }

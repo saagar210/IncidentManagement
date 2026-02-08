@@ -430,7 +430,7 @@ export function ReportsView() {
                       {formatHistoryDate(entry.generated_at)}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {entry.file_size_bytes
+                      {entry.file_size_bytes !== null
                         ? formatBytes(entry.file_size_bytes)
                         : "--"}
                     </TableCell>
