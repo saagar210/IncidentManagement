@@ -13,6 +13,7 @@ import { IncidentDetailView } from "@/views/incident-detail-view";
 import { ReportsView } from "@/views/reports-view";
 import { SettingsView } from "@/views/settings-view";
 import { TrashView } from "@/views/trash-view";
+import { ActionItemsView } from "@/views/action-items-view";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard";
 import { useOnboardingComplete } from "@/hooks/use-onboarding";
 
@@ -57,6 +58,7 @@ function AppRoutes() {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<DashboardView />} />
         <Route path="/incidents" element={<IncidentsView />} />
+        <Route path="/action-items" element={<ActionItemsView />} />
         <Route path="/incidents/new" element={<IncidentDetailView />} />
         <Route path="/incidents/:id" element={<IncidentDetailView />} />
         <Route path="/reports" element={<ReportsView />} />

@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
-use crate::db::queries::{incidents, settings, tags};
+use crate::db::queries::{audit, incidents, settings, tags};
 use crate::error::AppError;
 use crate::models::incident::{
     ActionItem, CreateActionItemRequest, CreateIncidentRequest, Incident, IncidentFilters,
@@ -15,7 +15,17 @@ pub async fn create_incident(
 ) -> Result<Incident, AppError> {
     incident.validate()?;
     let id = format!("inc-{}", uuid::Uuid::new_v4());
-    incidents::insert_incident(&*db, &id, &incident).await
+    let result = incidents::insert_incident(&*db, &id, &incident).await?;
+    let _ = audit::insert_audit_entry(
+        &*db,
+        "incident",
+        &id,
+        "created",
+        &format!("Created incident: {}", &incident.title),
+        "",
+    )
+    .await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -25,7 +35,14 @@ pub async fn update_incident(
     incident: UpdateIncidentRequest,
 ) -> Result<Incident, AppError> {
     incident.validate()?;
-    incidents::update_incident(&*db, &id, &incident).await
+    let result = incidents::update_incident(&*db, &id, &incident).await?;
+    let summary = if let Some(ref status) = incident.status {
+        format!("Updated incident status to {}", status)
+    } else {
+        "Updated incident".to_string()
+    };
+    let _ = audit::insert_audit_entry(&*db, "incident", &id, "updated", &summary, "").await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -33,7 +50,9 @@ pub async fn delete_incident(
     db: State<'_, SqlitePool>,
     id: String,
 ) -> Result<(), AppError> {
-    incidents::delete_incident(&*db, &id).await
+    incidents::delete_incident(&*db, &id).await?;
+    let _ = audit::insert_audit_entry(&*db, "incident", &id, "deleted", "Moved incident to trash", "").await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -80,6 +99,14 @@ pub async fn bulk_update_status(
     status: String,
 ) -> Result<(), AppError> {
     incidents::bulk_update_status(&*db, &ids, &status).await
+}
+
+#[tauri::command]
+pub async fn bulk_delete_incidents(
+    db: State<'_, SqlitePool>,
+    ids: Vec<String>,
+) -> Result<i64, AppError> {
+    incidents::bulk_delete_incidents(&*db, &ids).await
 }
 
 // Action Item commands

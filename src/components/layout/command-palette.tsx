@@ -12,6 +12,7 @@ import {
   Moon,
   Monitor,
   Trash2,
+  CheckSquare,
 } from "lucide-react";
 import { useSearchIncidents } from "@/hooks/use-incidents";
 import { useTheme, type Theme } from "@/hooks/use-theme";
@@ -112,6 +113,13 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 <kbd className="ml-auto text-[10px] text-muted-foreground/60">
                   {"\u2318"}2
                 </kbd>
+              </Command.Item>
+              <Command.Item
+                onSelect={() => runAction(() => navigate("/action-items"))}
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
+              >
+                <CheckSquare className="h-4 w-4 text-muted-foreground" />
+                Action Items
               </Command.Item>
               <Command.Item
                 onSelect={() => runAction(() => navigate("/reports"))}

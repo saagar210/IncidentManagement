@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Bell, AlertTriangle, Info } from "lucide-react";
+import { Bell, AlertTriangle, Info, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNotifications, type AppNotification } from "@/hooks/use-notifications";
 
 function NotificationIcon({ type }: { type: AppNotification["type"] }) {
+  if (type === "error") return <XCircle className="h-4 w-4 text-red-500" />;
   if (type === "warning") return <AlertTriangle className="h-4 w-4 text-amber-500" />;
   return <Info className="h-4 w-4 text-blue-500" />;
 }

@@ -120,6 +120,8 @@ pub struct ActionItem {
     #[serde(default)]
     pub owner: String,
     pub due_date: Option<String>,
+    #[serde(default)]
+    pub incident_title: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

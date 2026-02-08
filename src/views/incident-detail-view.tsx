@@ -16,10 +16,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { TagInput } from "@/components/ui/tag-input";
 import { AttachmentList } from "@/components/incidents/attachment-list";
 import { CustomFieldsForm } from "@/components/incidents/custom-fields-form";
+import { ActionItemsPanel } from "@/components/incidents/ActionItemsPanel";
+import { SlaStatusBadge } from "@/components/incidents/SlaStatusBadge";
+import { ActivityFeed } from "@/components/incidents/ActivityFeed";
 import { toast } from "@/components/ui/use-toast";
 import {
   SEVERITY_LEVELS,
@@ -297,6 +301,7 @@ export function IncidentDetailView() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={() => navigate("/incidents")}>
@@ -331,254 +336,287 @@ export function IncidentDetailView() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* Section 1: Identification */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Identification</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <Label htmlFor="title">Title *</Label>
-              <Input
-                id="title"
-                placeholder="Brief description of the incident"
-                {...register("title", { required: true })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="service_id">Service *</Label>
-              <Select
-                id="service_id"
-                {...register("service_id", { required: true })}
-              >
-                <option value="">Select a service</option>
-                {services?.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="external_ref">External Reference</Label>
-              <Input
-                id="external_ref"
-                placeholder="e.g., JIRA-1234"
-                {...register("external_ref")}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <Label>Tags</Label>
-              <TagInput
-                tags={tags}
-                onChange={setTags}
-                suggestions={allTags ?? []}
-                placeholder="Add tags..."
-              />
-            </div>
-          </CardContent>
-        </Card>
+      {/* Tabbed Form */}
+      <form onSubmit={handleSubmit(onSubmit)}>
+        <Tabs defaultValue="details">
+          <TabsList className="w-full justify-start">
+            <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="analysis">Analysis</TabsTrigger>
+            {isEditMode && <TabsTrigger value="actions">Actions & Extras</TabsTrigger>}
+            {isEditMode && <TabsTrigger value="activity">Activity</TabsTrigger>}
+          </TabsList>
 
-        {/* Section 2: Classification */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Classification</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <Label htmlFor="severity">Severity</Label>
-              <Select id="severity" {...register("severity")}>
-                {SEVERITY_LEVELS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label htmlFor="impact">Impact</Label>
-              <Select id="impact" {...register("impact")}>
-                {IMPACT_LEVELS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div>
-              <Label>Priority (computed)</Label>
-              <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm font-medium">
-                {computedPriority}
-              </div>
-            </div>
-            <div>
-              <Label htmlFor="status">Status</Label>
-              <Select id="status" {...register("status")}>
-                {STATUS_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </CardContent>
-        </Card>
+          {/* Tab 1: Details — Identification, Classification, SLA, Timeline, Impact, Recurrence */}
+          <TabsContent value="details" className="space-y-6">
+            {/* Identification */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Identification</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Label htmlFor="title">Title *</Label>
+                  <Input
+                    id="title"
+                    placeholder="Brief description of the incident"
+                    {...register("title", { required: true })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="service_id">Service *</Label>
+                  <Select
+                    id="service_id"
+                    {...register("service_id", { required: true })}
+                  >
+                    <option value="">Select a service</option>
+                    {services?.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="external_ref">External Reference</Label>
+                  <Input
+                    id="external_ref"
+                    placeholder="e.g., JIRA-1234"
+                    {...register("external_ref")}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <Label>Tags</Label>
+                  <TagInput
+                    tags={tags}
+                    onChange={setTags}
+                    suggestions={allTags ?? []}
+                    placeholder="Add tags..."
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Section 3: Timeline */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Timeline</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
-              <Label htmlFor="started_at">Started At *</Label>
-              <Input
-                id="started_at"
-                type="datetime-local"
-                {...register("started_at", { required: true })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="detected_at">Detected At *</Label>
-              <Input
-                id="detected_at"
-                type="datetime-local"
-                {...register("detected_at", { required: true })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="responded_at">Responded At</Label>
-              <Input
-                id="responded_at"
-                type="datetime-local"
-                {...register("responded_at")}
-              />
-            </div>
-            <div>
-              <Label htmlFor="resolved_at">Resolved At</Label>
-              <Input
-                id="resolved_at"
-                type="datetime-local"
-                {...register("resolved_at")}
-              />
-            </div>
-            <div>
-              <Label>Duration (computed)</Label>
-              <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">
-                {computedDuration}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            {/* Classification */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Classification</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <Label htmlFor="severity">Severity</Label>
+                  <Select id="severity" {...register("severity")}>
+                    {SEVERITY_LEVELS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="impact">Impact</Label>
+                  <Select id="impact" {...register("impact")}>
+                    {IMPACT_LEVELS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Priority (computed)</Label>
+                  <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm font-medium">
+                    {computedPriority}
+                  </div>
+                </div>
+                <div>
+                  <Label htmlFor="status">Status</Label>
+                  <Select id="status" {...register("status")}>
+                    {STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Section 4: Impact Assessment */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Impact Assessment</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="tickets_submitted">Tickets Submitted</Label>
-              <Input
-                id="tickets_submitted"
-                type="number"
-                min={0}
-                {...register("tickets_submitted", { valueAsNumber: true })}
-              />
-            </div>
-            <div>
-              <Label htmlFor="affected_users">Affected Users</Label>
-              <Input
-                id="affected_users"
-                type="number"
-                min={0}
-                {...register("affected_users", { valueAsNumber: true })}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            {/* SLA Status (existing incidents only) */}
+            {id && <SlaStatusBadge incidentId={id} />}
 
-        {/* Section 5: Recurrence */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recurrence</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="flex items-center gap-3">
-              <input
-                id="is_recurring"
-                type="checkbox"
-                className="h-4 w-4 rounded border-input"
-                {...register("is_recurring")}
-              />
-              <Label htmlFor="is_recurring" className="mb-0">
-                Is Recurring Incident
-              </Label>
-            </div>
-            <div>
-              <Label htmlFor="recurrence_of">Recurrence Of (Incident ID)</Label>
-              <Input
-                id="recurrence_of"
-                placeholder="UUID of original incident"
-                {...register("recurrence_of")}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Timeline */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Timeline</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <Label htmlFor="started_at">Started At *</Label>
+                  <Input
+                    id="started_at"
+                    type="datetime-local"
+                    {...register("started_at", { required: true })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="detected_at">Detected At *</Label>
+                  <Input
+                    id="detected_at"
+                    type="datetime-local"
+                    {...register("detected_at", { required: true })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="responded_at">Responded At</Label>
+                  <Input
+                    id="responded_at"
+                    type="datetime-local"
+                    {...register("responded_at")}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="resolved_at">Resolved At</Label>
+                  <Input
+                    id="resolved_at"
+                    type="datetime-local"
+                    {...register("resolved_at")}
+                  />
+                </div>
+                <div>
+                  <Label>Duration (computed)</Label>
+                  <div className="flex h-9 items-center rounded-md border bg-muted px-3 text-sm">
+                    {computedDuration}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Section 6: Analysis */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Analysis</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Root Cause</Label>
-              <MarkdownEditor
-                value={watch("root_cause")}
-                onChange={(val) => setValue("root_cause", val, { shouldDirty: true })}
-                placeholder="What caused this incident?"
-              />
-            </div>
-            <div>
-              <Label>Resolution</Label>
-              <MarkdownEditor
-                value={watch("resolution")}
-                onChange={(val) => setValue("resolution", val, { shouldDirty: true })}
-                placeholder="How was this resolved?"
-              />
-            </div>
-            <div>
-              <Label>Lessons Learned</Label>
-              <MarkdownEditor
-                value={watch("lessons_learned")}
-                onChange={(val) => setValue("lessons_learned", val, { shouldDirty: true })}
-                placeholder="What did we learn?"
-              />
-            </div>
-            <div>
-              <Label>Notes</Label>
-              <MarkdownEditor
-                value={watch("notes")}
-                onChange={(val) => setValue("notes", val, { shouldDirty: true })}
-                placeholder="Additional notes"
-                height={150}
-              />
-            </div>
-          </CardContent>
-        </Card>
+            {/* Impact Assessment */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Impact Assessment</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="tickets_submitted">Tickets Submitted</Label>
+                  <Input
+                    id="tickets_submitted"
+                    type="number"
+                    min={0}
+                    {...register("tickets_submitted", { valueAsNumber: true })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="affected_users">Affected Users</Label>
+                  <Input
+                    id="affected_users"
+                    type="number"
+                    min={0}
+                    {...register("affected_users", { valueAsNumber: true })}
+                  />
+                </div>
+              </CardContent>
+            </Card>
 
-        {/* Section 7: Custom Fields (edit mode only) */}
-        {isEditMode && (
-          <CustomFieldsForm
-            incidentId={id}
-            onSaveRef={handleCustomFieldsSaveRef}
-          />
-        )}
+            {/* Recurrence */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Recurrence</CardTitle>
+              </CardHeader>
+              <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    id="is_recurring"
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    {...register("is_recurring")}
+                  />
+                  <Label htmlFor="is_recurring" className="mb-0">
+                    Is Recurring Incident
+                  </Label>
+                </div>
+                <div>
+                  <Label htmlFor="recurrence_of">Recurrence Of (Incident ID)</Label>
+                  <Input
+                    id="recurrence_of"
+                    placeholder="UUID of original incident"
+                    {...register("recurrence_of")}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-        {/* Section 8: Attachments (edit mode only) */}
-        {isEditMode && <AttachmentList incidentId={id} />}
+          {/* Tab 2: Analysis — Root Cause, Resolution, Lessons Learned, Notes */}
+          <TabsContent value="analysis" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Analysis</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label>Root Cause</Label>
+                  <MarkdownEditor
+                    value={watch("root_cause")}
+                    onChange={(val) => setValue("root_cause", val, { shouldDirty: true })}
+                    placeholder="What caused this incident?"
+                  />
+                </div>
+                <div>
+                  <Label>Resolution</Label>
+                  <MarkdownEditor
+                    value={watch("resolution")}
+                    onChange={(val) => setValue("resolution", val, { shouldDirty: true })}
+                    placeholder="How was this resolved?"
+                  />
+                </div>
+                <div>
+                  <Label>Lessons Learned</Label>
+                  <MarkdownEditor
+                    value={watch("lessons_learned")}
+                    onChange={(val) => setValue("lessons_learned", val, { shouldDirty: true })}
+                    placeholder="What did we learn?"
+                  />
+                </div>
+                <div>
+                  <Label>Notes</Label>
+                  <MarkdownEditor
+                    value={watch("notes")}
+                    onChange={(val) => setValue("notes", val, { shouldDirty: true })}
+                    placeholder="Additional notes"
+                    height={150}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Tab 3: Actions & Extras — Action Items, Custom Fields, Attachments (edit only) */}
+          {isEditMode && id && (
+            <TabsContent value="actions" className="space-y-6">
+              <ActionItemsPanel incidentId={id} />
+              <CustomFieldsForm
+                incidentId={id}
+                onSaveRef={handleCustomFieldsSaveRef}
+              />
+              <AttachmentList incidentId={id} />
+            </TabsContent>
+          )}
+
+          {/* Tab 4: Activity — Audit Log (edit only) */}
+          {isEditMode && id && (
+            <TabsContent value="activity" className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Activity Log</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ActivityFeed incidentId={id} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
       </form>
     </div>
   );

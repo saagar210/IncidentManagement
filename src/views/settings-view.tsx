@@ -26,6 +26,12 @@ import {
   useUpdateCustomField,
   useDeleteCustomField,
 } from "@/hooks/use-custom-fields";
+import {
+  useSlaDefinitions,
+  useCreateSlaDefinition,
+  useUpdateSlaDefinition,
+  useDeleteSlaDefinition,
+} from "@/hooks/use-sla";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -43,6 +49,7 @@ import { toast } from "@/components/ui/use-toast";
 import {
   SEVERITY_LEVELS,
   IMPACT_LEVELS,
+  PRIORITY_LEVELS,
   SERVICE_CATEGORIES,
 } from "@/lib/constants";
 import type {
@@ -57,6 +64,7 @@ import type {
   CreateCustomFieldRequest,
   UpdateCustomFieldRequest,
 } from "@/types/custom-fields";
+import type { SlaDefinition } from "@/types/sla";
 
 // ===================== Services Tab =====================
 
@@ -1045,9 +1053,329 @@ function CustomFieldsTab() {
   );
 }
 
+// ===================== SLA Tab =====================
+
+interface SlaFormData {
+  name: string;
+  priority: string;
+  response_time_minutes: number;
+  resolve_time_minutes: number;
+}
+
+function formatSlaTime(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours < 24) return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+function SlaTab() {
+  const { data: definitions, isLoading } = useSlaDefinitions();
+  const createSla = useCreateSlaDefinition();
+  const updateSla = useUpdateSlaDefinition();
+  const deleteSla = useDeleteSlaDefinition();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const addForm = useForm<SlaFormData>({
+    defaultValues: {
+      name: "",
+      priority: "P0",
+      response_time_minutes: 15,
+      resolve_time_minutes: 60,
+    },
+  });
+
+  const editForm = useForm<SlaFormData>();
+
+  const handleAddSubmit = async (data: SlaFormData) => {
+    try {
+      await createSla.mutateAsync(data);
+      addForm.reset();
+      setShowAdd(false);
+    } catch (err) {
+      toast({
+        title: "Failed to create SLA",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const startEdit = (def: SlaDefinition) => {
+    setEditingId(def.id);
+    editForm.reset({
+      name: def.name,
+      priority: def.priority,
+      response_time_minutes: def.response_time_minutes,
+      resolve_time_minutes: def.resolve_time_minutes,
+    });
+  };
+
+  const handleEditSubmit = async (data: SlaFormData) => {
+    if (!editingId) return;
+    try {
+      await updateSla.mutateAsync({
+        id: editingId,
+        req: {
+          name: data.name,
+          priority: data.priority,
+          response_time_minutes: data.response_time_minutes,
+          resolve_time_minutes: data.resolve_time_minutes,
+        },
+      });
+      setEditingId(null);
+    } catch (err) {
+      toast({
+        title: "Failed to update SLA",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDelete = async (def: SlaDefinition) => {
+    const confirmed = window.confirm(
+      `Delete SLA definition "${def.name}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteSla.mutateAsync(def.id);
+    } catch (err) {
+      toast({
+        title: "Failed to delete SLA",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleToggleActive = async (def: SlaDefinition) => {
+    try {
+      await updateSla.mutateAsync({
+        id: def.id,
+        req: { is_active: !def.is_active },
+      });
+    } catch (err) {
+      toast({
+        title: "Failed to toggle SLA",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading SLA definitions...</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">SLA Definitions</h2>
+          <p className="text-sm text-muted-foreground">
+            Define response and resolution time targets per priority level.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(true)} disabled={showAdd}>
+          <Plus className="h-4 w-4" />
+          Add SLA
+        </Button>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Priority</TableHead>
+            <TableHead>Response Target</TableHead>
+            <TableHead>Resolve Target</TableHead>
+            <TableHead>Active</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {showAdd && (
+            <TableRow>
+              <TableCell>
+                <Input
+                  placeholder="SLA name"
+                  {...addForm.register("name", { required: true })}
+                />
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("priority")}>
+                  {PRIORITY_LEVELS.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="number"
+                  min={1}
+                  className="w-24"
+                  {...addForm.register("response_time_minutes", {
+                    valueAsNumber: true,
+                    required: true,
+                  })}
+                />
+                <span className="ml-1 text-xs text-muted-foreground">min</span>
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="number"
+                  min={1}
+                  className="w-24"
+                  {...addForm.register("resolve_time_minutes", {
+                    valueAsNumber: true,
+                    required: true,
+                  })}
+                />
+                <span className="ml-1 text-xs text-muted-foreground">min</span>
+              </TableCell>
+              <TableCell />
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={addForm.handleSubmit(handleAddSubmit)}
+                    disabled={createSla.isPending}
+                  >
+                    <Check className="h-4 w-4 text-green-500" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowAdd(false);
+                      addForm.reset();
+                    }}
+                  >
+                    <X className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+          {definitions?.map((def) =>
+            editingId === def.id ? (
+              <TableRow key={def.id}>
+                <TableCell>
+                  <Input {...editForm.register("name", { required: true })} />
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("priority")}>
+                    {PRIORITY_LEVELS.map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="w-24"
+                    {...editForm.register("response_time_minutes", {
+                      valueAsNumber: true,
+                    })}
+                  />
+                  <span className="ml-1 text-xs text-muted-foreground">min</span>
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="w-24"
+                    {...editForm.register("resolve_time_minutes", {
+                      valueAsNumber: true,
+                    })}
+                  />
+                  <span className="ml-1 text-xs text-muted-foreground">min</span>
+                </TableCell>
+                <TableCell />
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={editForm.handleSubmit(handleEditSubmit)}
+                      disabled={updateSla.isPending}
+                    >
+                      <Check className="h-4 w-4 text-green-500" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              <TableRow key={def.id} className={!def.is_active ? "opacity-50" : ""}>
+                <TableCell className="font-medium">{def.name}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">{def.priority}</Badge>
+                </TableCell>
+                <TableCell>{formatSlaTime(def.response_time_minutes)}</TableCell>
+                <TableCell>{formatSlaTime(def.resolve_time_minutes)}</TableCell>
+                <TableCell>
+                  <button
+                    onClick={() => handleToggleActive(def)}
+                    className={`h-4 w-4 rounded border ${
+                      def.is_active
+                        ? "bg-green-500 border-green-500"
+                        : "border-muted-foreground"
+                    }`}
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => startEdit(def)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleDelete(def)}
+                      disabled={deleteSla.isPending}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          )}
+          {(!definitions || definitions.length === 0) && !showAdd && (
+            <TableRow>
+              <TableCell colSpan={6} className="text-center text-muted-foreground">
+                No SLA definitions. Add one to set response/resolve time targets.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 // ===================== Settings View =====================
 
-type SettingsTab = "services" | "quarters" | "custom-fields" | "import";
+type SettingsTab = "services" | "quarters" | "custom-fields" | "sla" | "import";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("services");
@@ -1056,6 +1384,7 @@ export function SettingsView() {
     { key: "services", label: "Services" },
     { key: "quarters", label: "Quarters" },
     { key: "custom-fields", label: "Custom Fields" },
+    { key: "sla", label: "SLA Targets" },
     { key: "import", label: "Import & Data" },
   ];
 
@@ -1084,6 +1413,7 @@ export function SettingsView() {
       {activeTab === "services" && <ServicesTab />}
       {activeTab === "quarters" && <QuartersTab />}
       {activeTab === "custom-fields" && <CustomFieldsTab />}
+      {activeTab === "sla" && <SlaTab />}
       {activeTab === "import" && <ImportDataTab />}
     </div>
   );

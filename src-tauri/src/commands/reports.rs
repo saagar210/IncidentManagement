@@ -16,6 +16,12 @@ pub struct ReportConfigCmd {
     pub introduction: String,
     pub sections: ReportSectionsCmd,
     pub chart_images: HashMap<String, String>, // base64-encoded PNGs
+    #[serde(default = "default_format")]
+    pub format: String, // "docx" or "pdf"
+}
+
+fn default_format() -> String {
+    "docx".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +92,16 @@ pub async fn generate_report(
         }
     }
 
+    // Parse format
+    let report_format = match config.format.to_lowercase().as_str() {
+        "pdf" => reports::ReportFormat::Pdf,
+        _ => reports::ReportFormat::Docx,
+    };
+    let file_ext = match report_format {
+        reports::ReportFormat::Pdf => "pdf",
+        reports::ReportFormat::Docx => "docx",
+    };
+
     // Convert command config to internal report config
     let report_config = reports::ReportConfig {
         quarter_id: config.quarter_id,
@@ -103,20 +119,22 @@ pub async fn generate_report(
             action_items: config.sections.action_items,
         },
         chart_images,
+        format: report_format,
     };
 
-    // Generate the DOCX
-    let docx_bytes = reports::generate_quarterly_report(&*db, &report_config).await?;
+    // Generate the report
+    let report_bytes = reports::generate_quarterly_report(&*db, &report_config).await?;
 
     // Write to a temp file
     let temp_dir = std::env::temp_dir();
     let filename = format!(
-        "incident_report_{}.docx",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S")
+        "incident_report_{}.{}",
+        chrono::Utc::now().format("%Y%m%d_%H%M%S"),
+        file_ext
     );
     let temp_path = temp_dir.join(&filename);
 
-    tokio::fs::write(&temp_path, &docx_bytes)
+    tokio::fs::write(&temp_path, &report_bytes)
         .await
         .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
 
@@ -152,10 +170,11 @@ pub async fn save_report(
             "Save path must not contain path traversal sequences".into(),
         ));
     }
-    // Must end in .docx
-    if save.extension().and_then(|e| e.to_str()) != Some("docx") {
+    // Must end in .docx or .pdf
+    let ext = save.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if ext != "docx" && ext != "pdf" {
         return Err(AppError::Validation(
-            "Save path must have .docx extension".into(),
+            "Save path must have .docx or .pdf extension".into(),
         ));
     }
 
@@ -169,12 +188,13 @@ pub async fn save_report(
         .map_err(|e| AppError::Report(format!("Failed to read file metadata: {}", e)))?;
     let file_size = metadata.len() as i64;
 
-    // Record in history
+    // Record in history — detect format from extension
+    let format_str = if ext == "pdf" { "pdf" } else { "docx" };
     let history = report_history::insert_report_history(
         &*db,
         &title,
         quarter_id.as_deref(),
-        "docx",
+        format_str,
         &save_path,
         &config_json.unwrap_or_else(|| "{}".to_string()),
         file_size,

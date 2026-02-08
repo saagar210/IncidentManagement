@@ -90,6 +90,7 @@ export interface ActionItem {
   status: string;
   owner: string;
   due_date: string | null;
+  incident_title?: string;
   created_at: string;
   updated_at: string;
 }

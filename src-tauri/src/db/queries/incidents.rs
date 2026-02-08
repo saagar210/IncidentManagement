@@ -335,6 +335,36 @@ pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -
     Ok(())
 }
 
+pub async fn bulk_delete_incidents(db: &SqlitePool, ids: &[String]) -> AppResult<i64> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    if ids.len() > 100 {
+        return Err(AppError::Validation("Cannot bulk delete more than 100 incidents at once".into()));
+    }
+
+    let mut tx = db.begin()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let mut count: i64 = 0;
+    for id in ids {
+        let result = sqlx::query(
+            "UPDATE incidents SET deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND deleted_at IS NULL"
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+        count += result.rows_affected() as i64;
+    }
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+    Ok(count)
+}
+
 // Action items
 
 pub async fn insert_action_item(
@@ -421,13 +451,13 @@ pub async fn list_action_items(
     incident_id: Option<&str>,
 ) -> AppResult<Vec<ActionItem>> {
     let rows = if let Some(iid) = incident_id {
-        sqlx::query("SELECT * FROM action_items WHERE incident_id = ? ORDER BY created_at ASC")
+        sqlx::query("SELECT a.*, NULL as incident_title FROM action_items a WHERE a.incident_id = ? ORDER BY a.created_at ASC")
             .bind(iid)
             .fetch_all(db)
             .await
             .map_err(|e| AppError::Database(e.to_string()))?
     } else {
-        sqlx::query("SELECT * FROM action_items ORDER BY created_at ASC")
+        sqlx::query("SELECT a.*, i.title as incident_title FROM action_items a JOIN incidents i ON a.incident_id = i.id WHERE i.deleted_at IS NULL ORDER BY CASE WHEN a.due_date IS NOT NULL AND a.due_date < strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AND a.status != 'Done' THEN 0 ELSE 1 END, a.due_date ASC, a.created_at ASC")
             .fetch_all(db)
             .await
             .map_err(|e| AppError::Database(e.to_string()))?
@@ -479,6 +509,7 @@ fn parse_action_item(row: &sqlx::sqlite::SqliteRow) -> ActionItem {
         status: row.get::<Option<String>, _>("status").unwrap_or_else(|| "Open".to_string()),
         owner: row.get::<Option<String>, _>("owner").unwrap_or_default(),
         due_date: row.get("due_date"),
+        incident_title: row.get::<Option<String>, _>("incident_title"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

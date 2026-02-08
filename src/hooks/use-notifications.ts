@@ -1,34 +1,48 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { tauriInvoke } from "@/lib/tauri";
 import { useQuarters } from "@/hooks/use-quarters";
+import { useNotificationSummary } from "@/hooks/use-audit";
 
 export interface AppNotification {
   id: string;
-  type: "warning" | "info";
+  type: "warning" | "info" | "error";
   title: string;
   description: string;
 }
 
 export function useNotifications() {
-  const { data: overdueCount } = useQuery({
-    queryKey: ["overdue-action-items-count"],
-    queryFn: () => tauriInvoke<number>("count_overdue_action_items"),
-    staleTime: 60000,
-  });
-
+  const { data: summary } = useNotificationSummary();
   const { data: quarters } = useQuarters();
 
   const notifications = useMemo(() => {
     const items: AppNotification[] = [];
 
+    // SLA breaches (highest priority)
+    if (summary && summary.sla_breaches > 0) {
+      items.push({
+        id: "sla-breaches",
+        type: "error",
+        title: "SLA Breaches",
+        description: `${summary.sla_breaches} active incident${summary.sla_breaches > 1 ? "s" : ""} have breached SLA targets.`,
+      });
+    }
+
     // Overdue action items
-    if (overdueCount && overdueCount > 0) {
+    if (summary && summary.overdue_action_items > 0) {
       items.push({
         id: "overdue-actions",
         type: "warning",
         title: "Overdue Action Items",
-        description: `${overdueCount} action item${overdueCount > 1 ? "s" : ""} past due date.`,
+        description: `${summary.overdue_action_items} action item${summary.overdue_action_items > 1 ? "s" : ""} past due date.`,
+      });
+    }
+
+    // Active incidents
+    if (summary && summary.active_incidents > 0) {
+      items.push({
+        id: "active-incidents",
+        type: "info",
+        title: "Active Incidents",
+        description: `${summary.active_incidents} incident${summary.active_incidents > 1 ? "s" : ""} currently active.`,
       });
     }
 
@@ -51,7 +65,7 @@ export function useNotifications() {
     }
 
     return items;
-  }, [overdueCount, quarters]);
+  }, [summary, quarters]);
 
   return notifications;
 }

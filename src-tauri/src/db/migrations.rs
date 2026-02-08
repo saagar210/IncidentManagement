@@ -23,6 +23,8 @@ pub async fn run_migrations(pool: &SqlitePool) -> AppResult<()> {
         (5, "Add attachments", include_str!("sql/005_attachments.sql")),
         (6, "Add soft delete", include_str!("sql/006_soft_delete.sql")),
         (7, "Add report history", include_str!("sql/007_report_history.sql")),
+        (8, "Add SLA definitions", include_str!("sql/008_sla_definitions.sql")),
+        (9, "Add audit log", include_str!("sql/009_audit_log.sql")),
     ];
 
     for (version, description, sql) in migrations {

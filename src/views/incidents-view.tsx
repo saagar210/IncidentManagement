@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, ChevronLeft, ChevronRight, TableIcon, GanttChart } from "lucide-react";
+import { Plus, Search, ChevronLeft, ChevronRight, TableIcon, GanttChart, Trash2, X } from "lucide-react";
 import { format } from "date-fns";
-import { useIncidents } from "@/hooks/use-incidents";
+import { useIncidents, useBulkUpdateStatus, useBulkDeleteIncidents } from "@/hooks/use-incidents";
 import { useActiveServices } from "@/hooks/use-services";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/use-toast";
 import { IncidentTimeline } from "@/components/incidents/incident-timeline";
+import { SlaStatusBadge } from "@/components/incidents/SlaStatusBadge";
 import {
   SEVERITY_LEVELS,
   STATUS_OPTIONS,
@@ -69,11 +71,14 @@ export function IncidentsView() {
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<IncidentFilters>({});
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const debouncedSearch = useDebounce(searchText, 300);
 
   const { data: services } = useActiveServices();
   const { data: incidents, isLoading } = useIncidents(filters);
+  const bulkStatusMutation = useBulkUpdateStatus();
+  const bulkDeleteMutation = useBulkDeleteIncidents();
 
   const filteredIncidents = useMemo(() => {
     if (!incidents) return [];
@@ -96,6 +101,7 @@ export function IncidentsView() {
   const updateFilter = useCallback(
     (key: keyof IncidentFilters, value: string) => {
       setPage(0);
+      setSelectedIds(new Set());
       setFilters((prev) => {
         const next = { ...prev };
         if (value) {
@@ -108,6 +114,47 @@ export function IncidentsView() {
     },
     []
   );
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleSelectAll = useCallback(() => {
+    if (selectedIds.size === pagedIncidents.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(pagedIncidents.map((inc: Incident) => inc.id)));
+    }
+  }, [selectedIds.size, pagedIncidents]);
+
+  const handleBulkStatus = useCallback(async (status: string) => {
+    const ids = Array.from(selectedIds);
+    try {
+      await bulkStatusMutation.mutateAsync({ ids, status });
+      toast({ title: `Updated ${ids.length} incident(s) to ${status}` });
+      setSelectedIds(new Set());
+    } catch (err) {
+      toast({ title: "Bulk update failed", description: String(err), variant: "destructive" });
+    }
+  }, [selectedIds, bulkStatusMutation]);
+
+  const handleBulkDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    const confirmed = window.confirm(`Move ${ids.length} incident(s) to trash?`);
+    if (!confirmed) return;
+    try {
+      await bulkDeleteMutation.mutateAsync(ids);
+      toast({ title: `Moved ${ids.length} incident(s) to trash` });
+      setSelectedIds(new Set());
+    } catch (err) {
+      toast({ title: "Bulk delete failed", description: String(err), variant: "destructive" });
+    }
+  }, [selectedIds, bulkDeleteMutation]);
 
   return (
     <div className="space-y-4 p-6">
@@ -208,12 +255,21 @@ export function IncidentsView() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-input"
+                  checked={pagedIncidents.length > 0 && selectedIds.size === pagedIncidents.length}
+                  onChange={toggleSelectAll}
+                />
+              </TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Service</TableHead>
               <TableHead>Severity</TableHead>
               <TableHead>Impact</TableHead>
               <TableHead>Priority</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>SLA</TableHead>
               <TableHead>Started At</TableHead>
               <TableHead>Duration</TableHead>
             </TableRow>
@@ -225,6 +281,14 @@ export function IncidentsView() {
                 className="cursor-pointer"
                 onClick={() => navigate(`/incidents/${incident.id}`)}
               >
+                <TableCell onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input"
+                    checked={selectedIds.has(incident.id)}
+                    onChange={() => toggleSelect(incident.id)}
+                  />
+                </TableCell>
                 <TableCell className="font-medium max-w-[250px] truncate">
                   {incident.title}
                 </TableCell>
@@ -269,6 +333,9 @@ export function IncidentsView() {
                     {incident.status}
                   </Badge>
                 </TableCell>
+                <TableCell>
+                  <SlaStatusBadge incidentId={incident.id} compact />
+                </TableCell>
                 <TableCell className="whitespace-nowrap text-sm">
                   {formatDate(incident.started_at)}
                 </TableCell>
@@ -279,6 +346,46 @@ export function IncidentsView() {
             ))}
           </TableBody>
         </Table>
+      )}
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/50 px-4 py-2">
+          <span className="text-sm font-medium">
+            {selectedIds.size} selected
+          </span>
+          <div className="h-4 w-px bg-border" />
+          <Select
+            value=""
+            onChange={(e) => {
+              if (e.target.value) handleBulkStatus(e.target.value);
+            }}
+            className="w-40 h-8 text-sm"
+          >
+            <option value="">Change Status...</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </Select>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkDelete}
+            className="text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Move to Trash
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear
+          </Button>
+        </div>
       )}
 
       {/* Pagination (table mode only) */}
@@ -294,7 +401,7 @@ export function IncidentsView() {
               variant="outline"
               size="sm"
               disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
+              onClick={() => { setPage((p) => p - 1); setSelectedIds(new Set()); }}
             >
               <ChevronLeft className="h-4 w-4" />
               Prev
@@ -306,7 +413,7 @@ export function IncidentsView() {
               variant="outline"
               size="sm"
               disabled={page >= totalPages - 1}
-              onClick={() => setPage((p) => p + 1)}
+              onClick={() => { setPage((p) => p + 1); setSelectedIds(new Set()); }}
             >
               Next
               <ChevronRight className="h-4 w-4" />

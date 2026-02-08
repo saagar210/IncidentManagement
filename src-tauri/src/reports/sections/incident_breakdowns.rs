@@ -3,6 +3,7 @@ use docx_rs::*;
 use crate::models::incident::Incident;
 use crate::models::metrics::format_minutes;
 
+use crate::reports::markdown;
 use super::{heading1, heading2, body_text, label_value, header_cell, text_cell, spacer};
 
 pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
@@ -57,33 +58,33 @@ pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
         }
         docx = docx.add_paragraph(spacer());
 
-        // Root cause
+        // Root cause (markdown-rendered)
         if !incident.root_cause.is_empty() {
             docx = docx.add_paragraph(
                 Paragraph::new()
                     .add_run(Run::new().add_text("Root Cause:").bold().size(11 * 2))
             );
-            docx = docx.add_paragraph(body_text(&incident.root_cause));
+            docx = markdown::append_markdown(docx, &incident.root_cause);
             docx = docx.add_paragraph(spacer());
         }
 
-        // Resolution
+        // Resolution (markdown-rendered)
         if !incident.resolution.is_empty() {
             docx = docx.add_paragraph(
                 Paragraph::new()
                     .add_run(Run::new().add_text("Resolution:").bold().size(11 * 2))
             );
-            docx = docx.add_paragraph(body_text(&incident.resolution));
+            docx = markdown::append_markdown(docx, &incident.resolution);
             docx = docx.add_paragraph(spacer());
         }
 
-        // Lessons learned
+        // Lessons learned (markdown-rendered)
         if !incident.lessons_learned.is_empty() {
             docx = docx.add_paragraph(
                 Paragraph::new()
                     .add_run(Run::new().add_text("Lessons Learned:").bold().size(11 * 2))
             );
-            docx = docx.add_paragraph(body_text(&incident.lessons_learned));
+            docx = markdown::append_markdown(docx, &incident.lessons_learned);
             docx = docx.add_paragraph(spacer());
         }
 

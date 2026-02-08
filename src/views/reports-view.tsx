@@ -27,7 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import type { ReportSections, DiscussionPoint, ReportHistoryEntry } from "@/types/reports";
+import type { ReportSections, ReportFormat, DiscussionPoint, ReportHistoryEntry } from "@/types/reports";
 
 const DEFAULT_SECTIONS: ReportSections = {
   executive_summary: true,
@@ -78,6 +78,7 @@ export function ReportsView() {
   const [title, setTitle] = useState("");
   const [introduction, setIntroduction] = useState("");
   const [sections, setSections] = useState<ReportSections>(DEFAULT_SECTIONS);
+  const [reportFormat, setReportFormat] = useState<ReportFormat>("docx");
   const [showDiscussionPreview, setShowDiscussionPreview] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -118,6 +119,9 @@ export function ReportsView() {
     setIsGenerating(true);
 
     try {
+      const ext = reportFormat === "pdf" ? "pdf" : "docx";
+      const filterName = reportFormat === "pdf" ? "PDF Document" : "Word Document";
+
       // Generate the report (returns temp file path)
       const tempPath = await generateReport.mutateAsync({
         quarter_id: selectedQuarterId,
@@ -126,12 +130,13 @@ export function ReportsView() {
         introduction,
         sections,
         chart_images: {},
+        format: reportFormat,
       });
 
       // Prompt user for save location
       const savePath = await save({
-        defaultPath: `${effectiveTitle.replace(/[^a-zA-Z0-9]/g, "_")}.docx`,
-        filters: [{ name: "Word Document", extensions: ["docx"] }],
+        defaultPath: `${effectiveTitle.replace(/[^a-zA-Z0-9]/g, "_")}.${ext}`,
+        filters: [{ name: filterName, extensions: [ext] }],
       });
 
       if (savePath) {
@@ -185,7 +190,7 @@ export function ReportsView() {
             Report Generator
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Generate quarterly incident review reports as DOCX files.
+            Generate quarterly incident review reports as DOCX or PDF files.
           </p>
         </div>
       </div>
@@ -196,7 +201,7 @@ export function ReportsView() {
           <CardTitle className="text-lg">Report Configuration</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Quarter</Label>
               {quartersLoading ? (
@@ -226,6 +231,17 @@ export function ReportsView() {
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={effectiveTitle}
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Format</Label>
+              <Select
+                value={reportFormat}
+                onChange={(e) => setReportFormat(e.target.value as ReportFormat)}
+              >
+                <option value="docx">Word Document (.docx)</option>
+                <option value="pdf">PDF Document (.pdf)</option>
+              </Select>
             </div>
           </div>
 

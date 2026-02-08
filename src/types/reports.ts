@@ -9,6 +9,8 @@ export interface ReportSections {
   action_items: boolean;
 }
 
+export type ReportFormat = "docx" | "pdf";
+
 export interface ReportConfig {
   quarter_id: string | null;
   fiscal_year: number | null;
@@ -16,6 +18,7 @@ export interface ReportConfig {
   introduction: string;
   sections: ReportSections;
   chart_images: Record<string, string>;
+  format: ReportFormat;
 }
 
 export interface DiscussionPoint {

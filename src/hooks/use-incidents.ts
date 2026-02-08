@@ -88,6 +88,19 @@ export function useBulkUpdateStatus() {
   });
 }
 
+export function useBulkDeleteIncidents() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      tauriInvoke<number>("bulk_delete_incidents", { ids }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["deleted-count"] });
+      queryClient.invalidateQueries({ queryKey: ["deleted-incidents"] });
+    },
+  });
+}
+
 // Action Items
 
 export function useActionItems(incidentId?: string) {

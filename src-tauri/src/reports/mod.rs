@@ -1,4 +1,6 @@
 pub mod charts;
+pub mod markdown;
+pub mod pdf;
 pub mod sections;
 
 use std::collections::HashMap;
@@ -37,6 +39,14 @@ pub struct ReportConfig {
     pub introduction: String,
     pub sections: ReportSections,
     pub chart_images: HashMap<String, Vec<u8>>, // decoded PNG bytes
+    pub format: ReportFormat,
+}
+
+/// Supported output formats for reports.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ReportFormat {
+    Docx,
+    Pdf,
 }
 
 /// Collected data for report generation.
@@ -60,21 +70,47 @@ struct ReportData {
     trends: QuarterlyTrends,
 }
 
-/// Main entry point: generate a DOCX quarterly report and return the bytes.
+/// Main entry point: generate a quarterly report and return the bytes.
+/// Supports both DOCX and PDF formats based on config.format.
 pub async fn generate_quarterly_report(
     db: &SqlitePool,
     config: &ReportConfig,
 ) -> AppResult<Vec<u8>> {
     let data = fetch_report_data(db, config).await?;
-    let docx = build_document(config, &data);
 
-    let mut buf: Vec<u8> = Vec::new();
-    let cursor = Cursor::new(&mut buf);
-    docx.build()
-        .pack(cursor)
-        .map_err(|e| AppError::Report(format!("Failed to build DOCX: {}", e)))?;
+    match config.format {
+        ReportFormat::Pdf => {
+            pdf::build_pdf(
+                config,
+                &data.incidents,
+                &data.prev_incidents,
+                data.quarter.as_ref(),
+                data.mttr,
+                data.mtta,
+                data.total_incidents,
+                data.recurrence_rate,
+                data.avg_tickets,
+                data.prev_mttr,
+                data.prev_mtta,
+                data.prev_total,
+                data.prev_recurrence,
+                data.prev_tickets,
+                &data.action_items_all,
+                &data.trends,
+            )
+        }
+        ReportFormat::Docx => {
+            let docx = build_document(config, &data);
 
-    Ok(buf)
+            let mut buf: Vec<u8> = Vec::new();
+            let cursor = Cursor::new(&mut buf);
+            docx.build()
+                .pack(cursor)
+                .map_err(|e| AppError::Report(format!("Failed to build DOCX: {}", e)))?;
+
+            Ok(buf)
+        }
+    }
 }
 
 /// Generate discussion points for preview (no DOCX build).

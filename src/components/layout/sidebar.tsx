@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor, Trash2 } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor, Trash2, CheckSquare } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ import { NotificationCenter } from "@/components/layout/notification-center";
 const NAV_ITEMS = [
   { label: "Dashboard", icon: BarChart3, to: "/dashboard", shortcut: "1" },
   { label: "Incidents", icon: AlertTriangle, to: "/incidents", shortcut: "2" },
+  { label: "Action Items", icon: CheckSquare, to: "/action-items", shortcut: null },
   { label: "Reports", icon: FileText, to: "/reports", shortcut: "3" },
   { label: "Settings", icon: Settings, to: "/settings", shortcut: "4" },
 ] as const;
@@ -33,6 +34,11 @@ export function Sidebar() {
     queryKey: ["deleted-count"],
     queryFn: () => tauriInvoke<number>("count_deleted_incidents"),
     staleTime: 30000,
+  });
+  const { data: overdueCount } = useQuery({
+    queryKey: ["overdue-action-items-count"],
+    queryFn: () => tauriInvoke<number>("count_overdue_action_items"),
+    staleTime: 60000,
   });
 
   const cycleTheme = () => {
@@ -68,10 +74,17 @@ export function Sidebar() {
           >
             <item.icon className="h-4 w-4" />
             <span className="flex-1">{item.label}</span>
-            <kbd className="hidden text-[10px] text-sidebar-foreground/40 lg:inline">
-              {"\u2318"}
-              {item.shortcut}
-            </kbd>
+            {item.label === "Action Items" && (overdueCount ?? 0) > 0 && (
+              <Badge variant="destructive" className="h-5 min-w-[20px] px-1 text-[10px]">
+                {overdueCount}
+              </Badge>
+            )}
+            {item.shortcut && (
+              <kbd className="hidden text-[10px] text-sidebar-foreground/40 lg:inline">
+                {"\u2318"}
+                {item.shortcut}
+              </kbd>
+            )}
           </NavLink>
         ))}
         <NavLink

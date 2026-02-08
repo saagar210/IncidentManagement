@@ -32,6 +32,7 @@ pub fn run() {
             commands::incidents::list_incidents,
             commands::incidents::search_incidents,
             commands::incidents::bulk_update_status,
+            commands::incidents::bulk_delete_incidents,
             // Action items
             commands::incidents::create_action_item,
             commands::incidents::update_action_item,
@@ -83,6 +84,15 @@ pub fn run() {
             commands::reports::list_report_history,
             commands::reports::delete_report_history_entry,
             commands::reports::generate_narrative,
+            // Audit & Notifications
+            commands::audit::list_audit_entries,
+            commands::audit::get_notification_summary,
+            // SLA
+            commands::sla::list_sla_definitions,
+            commands::sla::create_sla_definition,
+            commands::sla::update_sla_definition,
+            commands::sla::delete_sla_definition,
+            commands::sla::compute_sla_status,
             // Import (Phase 4)
             commands::import::parse_csv_headers,
             commands::import::preview_csv_import,
