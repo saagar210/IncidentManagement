@@ -199,11 +199,11 @@ The `.dmg` installer will be in `src-tauri/target/release/bundle/dmg/`.
 ### Run Tests
 
 ```bash
-# Rust tests (158 tests)
-cd src-tauri && cargo test
+# Rust tests
+cd src-tauri && cargo test --lib
 
-# Frontend tests (16 tests)
-pnpm test
+# Frontend tests
+pnpm test:run
 
 # Bundle budget guard
 pnpm test:bundle
