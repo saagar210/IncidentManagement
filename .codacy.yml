@@ -2,3 +2,6 @@
 exclude_paths:
   - "src/views/incidents-view.test.ts"
   - "src/views/reports-view.test.tsx"
+  # Codacy's PMD-based analyzer currently errors on these SQLite migrations.
+  - "src-tauri/src/db/sql/013_analytics_fts.sql"
+  - "src-tauri/src/db/sql/014_postmortem_ai.sql"
