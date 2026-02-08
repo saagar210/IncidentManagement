@@ -1,4 +1,4 @@
-import MDEditor from "@uiw/react-md-editor";
+import MDEditor from "@uiw/react-md-editor/nohighlight";
 import { useTheme } from "@/hooks/use-theme";
 
 interface MarkdownViewerProps {

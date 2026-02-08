@@ -196,6 +196,9 @@ cd src-tauri && cargo test
 
 # Frontend tests (16 tests)
 pnpm test
+
+# Bundle budget guard
+pnpm test:bundle
 ```
 
 ## Project Structure
