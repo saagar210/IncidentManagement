@@ -52,4 +52,4 @@ SELECT
     root_cause,
     1
 FROM incidents
-WHERE root_cause IS NOT NULL AND root_cause != '' AND deleted_at IS NULL
+WHERE root_cause IS NOT NULL AND root_cause != '' AND deleted_at IS NULL;
