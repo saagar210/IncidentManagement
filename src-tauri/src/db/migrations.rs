@@ -94,74 +94,49 @@ async fn recover_lifecycle_migration_partial_state(conn: &mut SqliteConnection) 
     .await
     .map_err(|e| AppError::Database(format!("Lifecycle recovery check failed: {}", e)))?;
 
-    // If both tables exist, a prior migration attempt likely failed before rename.
-    // Keep canonical `incidents` and drop stale temp table so migration can rerun cleanly.
-    if incidents_exists && incidents_new_exists {
-        sqlx::query("DROP TABLE incidents_new")
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| {
-                AppError::Database(format!(
-                    "Failed to clean up partial lifecycle migration state: {}",
-                    e
-                ))
-            })?;
-    } else if !incidents_exists && incidents_new_exists {
+    match (incidents_exists, incidents_new_exists) {
+        // If both tables exist, a prior migration attempt likely failed before rename.
+        // Keep canonical `incidents` and drop stale temp table so migration can rerun cleanly.
+        (true, true) => {
+            sqlx::query("DROP TABLE incidents_new")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    AppError::Database(format!(
+                        "Failed to clean up partial lifecycle migration state: {}",
+                        e
+                    ))
+                })?;
+        }
         // If only incidents_new exists, a prior run likely dropped incidents but failed before rename.
         // Promote incidents_new back to incidents so migration 12 can rerun safely.
-        sqlx::query("ALTER TABLE incidents_new RENAME TO incidents")
-            .execute(&mut *conn)
-            .await
-            .map_err(|e| {
-                AppError::Database(format!(
-                    "Failed to recover incidents table from partial lifecycle migration state: {}",
-                    e
-                ))
-            })?;
+        (false, true) => {
+            sqlx::query("ALTER TABLE incidents_new RENAME TO incidents")
+                .execute(&mut *conn)
+                .await
+                .map_err(|e| {
+                    AppError::Database(format!(
+                        "Failed to recover incidents table from partial lifecycle migration state: {}",
+                        e
+                    ))
+                })?;
+        }
+        _ => {}
     }
 
     Ok(())
 }
 
 fn split_migration_statements(sql: &str) -> Vec<String> {
-    let mut statements = Vec::new();
-    let mut current = String::new();
-    let mut in_trigger = false;
+    let mut parser = MigrationStatementParser::default();
 
     for raw_line in sql.lines() {
-        let without_comment = strip_inline_comment(raw_line);
-        let trimmed = without_comment.trim();
-
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if !in_trigger && starts_trigger_statement(trimmed) {
-            in_trigger = true;
-        }
-
-        if !current.is_empty() {
-            current.push('\n');
-        }
-        current.push_str(trimmed);
-
-        if in_trigger {
-            if is_trigger_end(trimmed) {
-                statements.push(current.trim().to_string());
-                current.clear();
-                in_trigger = false;
-            }
-        } else if contains_statement_terminator(trimmed) {
-            statements.push(current.trim().to_string());
-            current.clear();
+        if let Some(line) = normalize_migration_line(raw_line) {
+            parser.push_line(&line);
         }
     }
 
-    if !current.trim().is_empty() {
-        statements.push(current.trim().to_string());
-    }
-
-    statements
+    parser.finish()
 }
 
 fn starts_trigger_statement(line: &str) -> bool {
@@ -174,98 +149,150 @@ fn is_trigger_end(line: &str) -> bool {
 }
 
 fn contains_statement_terminator(line: &str) -> bool {
-    let mut chars = line.chars().peekable();
-    let mut in_single = false;
-    let mut in_double = false;
-
-    while let Some(ch) = chars.next() {
-        if in_single {
-            if ch == '\'' {
-                if chars.peek() == Some(&'\'') {
-                    chars.next();
-                } else {
-                    in_single = false;
-                }
-            }
-            continue;
-        }
-
-        if in_double {
-            if ch == '"' {
-                if chars.peek() == Some(&'"') {
-                    chars.next();
-                } else {
-                    in_double = false;
-                }
-            }
-            continue;
-        }
-
-        if ch == '\'' {
-            in_single = true;
-            continue;
-        }
-        if ch == '"' {
-            in_double = true;
-            continue;
-        }
+    let mut found = false;
+    walk_unquoted_chars(line, |_, ch, _| {
         if ch == ';' {
+            found = true;
             return true;
         }
-    }
-
-    false
+        false
+    });
+    found
 }
 
 fn strip_inline_comment(line: &str) -> String {
-    let mut chars = line.chars().peekable();
-    let mut out = String::new();
-    let mut in_single = false;
-    let mut in_double = false;
-
-    while let Some(ch) = chars.next() {
-        if in_single {
-            out.push(ch);
-            if ch == '\'' {
-                if chars.peek() == Some(&'\'') {
-                    out.push(chars.next().expect("peeked char exists"));
-                } else {
-                    in_single = false;
-                }
-            }
-            continue;
+    let mut comment_start = None;
+    walk_unquoted_chars(line, |idx, ch, next| {
+        if ch == '-' && next == Some('-') {
+            comment_start = Some(idx);
+            return true;
         }
-        if in_double {
-            out.push(ch);
-            if ch == '"' {
-                if chars.peek() == Some(&'"') {
-                    out.push(chars.next().expect("peeked char exists"));
-                } else {
-                    in_double = false;
-                }
+        false
+    });
+
+    match comment_start {
+        Some(idx) => line[..idx].trim_end().to_string(),
+        None => line.to_string(),
+    }
+}
+
+#[derive(Default)]
+struct MigrationStatementParser {
+    statements: Vec<String>,
+    current: String,
+    in_trigger: bool,
+}
+
+impl MigrationStatementParser {
+    fn push_line(&mut self, line: &str) {
+        if !self.in_trigger && starts_trigger_statement(line) {
+            self.in_trigger = true;
+        }
+
+        self.append_line(line);
+
+        if self.should_flush(line) {
+            self.flush_current();
+        }
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        if !self.current.trim().is_empty() {
+            self.flush_current();
+        }
+        self.statements
+    }
+
+    fn append_line(&mut self, line: &str) {
+        if !self.current.is_empty() {
+            self.current.push('\n');
+        }
+        self.current.push_str(line);
+    }
+
+    fn should_flush(&self, line: &str) -> bool {
+        if self.in_trigger {
+            return is_trigger_end(line);
+        }
+        contains_statement_terminator(line)
+    }
+
+    fn flush_current(&mut self) {
+        let statement = self.current.trim().to_string();
+        if !statement.is_empty() {
+            self.statements.push(statement);
+        }
+        self.current.clear();
+        self.in_trigger = false;
+    }
+}
+
+fn normalize_migration_line(raw_line: &str) -> Option<String> {
+    let without_comment = strip_inline_comment(raw_line);
+    let trimmed = without_comment.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_string())
+}
+
+#[derive(Clone, Copy)]
+enum QuoteMode {
+    Single,
+    Double,
+}
+
+fn walk_unquoted_chars(
+    line: &str,
+    mut on_unquoted: impl FnMut(usize, char, Option<char>) -> bool,
+) {
+    let mut chars = line.char_indices().peekable();
+    let mut quote_mode: Option<QuoteMode> = None;
+
+    while let Some((idx, ch)) = chars.next() {
+        if let Some(mode) = quote_mode {
+            if is_quote_terminator(mode, ch, &mut chars) {
+                quote_mode = None;
             }
             continue;
         }
 
         if ch == '\'' {
-            in_single = true;
-            out.push(ch);
+            quote_mode = Some(QuoteMode::Single);
             continue;
         }
         if ch == '"' {
-            in_double = true;
-            out.push(ch);
+            quote_mode = Some(QuoteMode::Double);
             continue;
         }
 
-        if ch == '-' && chars.peek() == Some(&'-') {
+        let next = chars.peek().map(|(_, c)| *c);
+        if on_unquoted(idx, ch, next) {
             break;
         }
+    }
+}
 
-        out.push(ch);
+fn is_quote_terminator(
+    mode: QuoteMode,
+    ch: char,
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> bool {
+    let quote = match mode {
+        QuoteMode::Single => '\'',
+        QuoteMode::Double => '"',
+    };
+
+    if ch != quote {
+        return false;
     }
 
-    out
+    if chars.peek().map(|(_, next)| *next) == Some(quote) {
+        chars.next();
+        return false;
+    }
+
+    true
 }
 
 #[cfg(test)]

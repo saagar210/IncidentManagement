@@ -1,0 +1,4 @@
+---
+exclude_paths:
+  - "src/views/*.test.ts"
+  - "src/views/*.test.tsx"

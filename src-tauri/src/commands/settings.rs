@@ -85,162 +85,13 @@ pub async fn export_all_data(db: State<'_, SqlitePool>) -> Result<String, AppErr
 }
 
 async fn build_backup_data(db: &SqlitePool) -> Result<BackupData, AppError> {
-    // Export services
-    let service_rows = sqlx::query("SELECT * FROM services ORDER BY name")
-        .fetch_all(db)
-        .await
-        .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let services: Vec<serde_json::Value> = service_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "name": r.get::<String, _>("name"),
-                "category": r.get::<String, _>("category"),
-                "default_severity": r.get::<String, _>("default_severity"),
-                "default_impact": r.get::<String, _>("default_impact"),
-                "description": r.get::<Option<String>, _>("description").unwrap_or_default(),
-                "owner": r.get::<Option<String>, _>("owner").unwrap_or_default(),
-                "tier": r.get::<Option<String>, _>("tier").unwrap_or_else(|| "T3".to_string()),
-                "runbook": r.get::<Option<String>, _>("runbook").unwrap_or_default(),
-                "is_active": r.get::<bool, _>("is_active"),
-                "created_at": r.get::<String, _>("created_at"),
-                "updated_at": r.get::<String, _>("updated_at"),
-            })
-        })
-        .collect();
-
-    // Export incidents
-    let incident_rows = sqlx::query("SELECT * FROM incidents ORDER BY started_at DESC")
-        .fetch_all(db)
-        .await
-        .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let incidents: Vec<serde_json::Value> = incident_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "title": r.get::<String, _>("title"),
-                "service_id": r.get::<String, _>("service_id"),
-                "severity": r.get::<String, _>("severity"),
-                "impact": r.get::<String, _>("impact"),
-                "status": r.get::<String, _>("status"),
-                "started_at": r.get::<String, _>("started_at"),
-                "detected_at": r.get::<String, _>("detected_at"),
-                "acknowledged_at": r.get::<Option<String>, _>("acknowledged_at"),
-                "first_response_at": r.get::<Option<String>, _>("first_response_at"),
-                "mitigation_started_at": r.get::<Option<String>, _>("mitigation_started_at"),
-                "responded_at": r.get::<Option<String>, _>("responded_at"),
-                "resolved_at": r.get::<Option<String>, _>("resolved_at"),
-                "reopened_at": r.get::<Option<String>, _>("reopened_at"),
-                "reopen_count": r.get::<i64, _>("reopen_count"),
-                "root_cause": r.get::<Option<String>, _>("root_cause").unwrap_or_default(),
-                "resolution": r.get::<Option<String>, _>("resolution").unwrap_or_default(),
-                "tickets_submitted": r.get::<Option<i64>, _>("tickets_submitted").unwrap_or(0),
-                "affected_users": r.get::<Option<i64>, _>("affected_users").unwrap_or(0),
-                "is_recurring": r.get::<bool, _>("is_recurring"),
-                "recurrence_of": r.get::<Option<String>, _>("recurrence_of"),
-                "lessons_learned": r.get::<Option<String>, _>("lessons_learned").unwrap_or_default(),
-                "action_items": r.get::<Option<String>, _>("action_items").unwrap_or_default(),
-                "external_ref": r.get::<Option<String>, _>("external_ref").unwrap_or_default(),
-                "notes": r.get::<Option<String>, _>("notes").unwrap_or_default(),
-                "created_at": r.get::<String, _>("created_at"),
-                "updated_at": r.get::<String, _>("updated_at"),
-            })
-        })
-        .collect();
-
-    // Export action items
-    let action_rows = sqlx::query("SELECT * FROM action_items ORDER BY created_at")
-        .fetch_all(db)
-        .await
-        .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let action_items: Vec<serde_json::Value> = action_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "incident_id": r.get::<String, _>("incident_id"),
-                "title": r.get::<String, _>("title"),
-                "description": r.get::<Option<String>, _>("description").unwrap_or_default(),
-                "status": r.get::<Option<String>, _>("status").unwrap_or_else(|| "Open".to_string()),
-                "owner": r.get::<Option<String>, _>("owner").unwrap_or_default(),
-                "due_date": r.get::<Option<String>, _>("due_date"),
-                "created_at": r.get::<String, _>("created_at"),
-                "updated_at": r.get::<String, _>("updated_at"),
-            })
-        })
-        .collect();
-
-    // Export quarter configs
-    let quarter_rows =
-        sqlx::query("SELECT * FROM quarter_config ORDER BY fiscal_year DESC, quarter_number DESC")
-            .fetch_all(db)
-            .await
-            .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let quarter_configs: Vec<serde_json::Value> = quarter_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "fiscal_year": r.get::<i64, _>("fiscal_year"),
-                "quarter_number": r.get::<i64, _>("quarter_number"),
-                "start_date": r.get::<String, _>("start_date"),
-                "end_date": r.get::<String, _>("end_date"),
-                "label": r.get::<String, _>("label"),
-                "created_at": r.get::<String, _>("created_at"),
-            })
-        })
-        .collect();
-
-    // Export custom field definitions and values
-    let custom_field_definition_rows =
-        sqlx::query("SELECT * FROM custom_field_definitions ORDER BY display_order ASC, name ASC")
-            .fetch_all(db)
-            .await
-            .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let custom_field_definitions: Vec<serde_json::Value> = custom_field_definition_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "id": r.get::<String, _>("id"),
-                "name": r.get::<String, _>("name"),
-                "field_type": r.get::<String, _>("field_type"),
-                "options": r.get::<Option<String>, _>("options").unwrap_or_default(),
-                "display_order": r.get::<i64, _>("display_order"),
-                "created_at": r.get::<String, _>("created_at"),
-                "updated_at": r.get::<String, _>("updated_at"),
-            })
-        })
-        .collect();
-
-    let custom_field_value_rows =
-        sqlx::query("SELECT * FROM custom_field_values ORDER BY incident_id, field_id")
-            .fetch_all(db)
-            .await
-            .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let custom_field_values: Vec<serde_json::Value> = custom_field_value_rows
-        .iter()
-        .map(|r: &sqlx::sqlite::SqliteRow| {
-            serde_json::json!({
-                "incident_id": r.get::<String, _>("incident_id"),
-                "field_id": r.get::<String, _>("field_id"),
-                "value": r.get::<String, _>("value"),
-            })
-        })
-        .collect();
-
-    // Export app settings
-    let settings_rows = sqlx::query("SELECT * FROM app_settings")
-        .fetch_all(db)
-        .await
-        .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
-    let mut settings_map = serde_json::Map::new();
-    for r in &settings_rows {
-        let key: String = Row::get(r, "key");
-        let value: String = Row::get(r, "value");
-        settings_map.insert(key, serde_json::Value::String(value));
-    }
+    let services = fetch_backup_services(db).await?;
+    let incidents = fetch_backup_incidents(db).await?;
+    let action_items = fetch_backup_action_items(db).await?;
+    let quarter_configs = fetch_backup_quarter_configs(db).await?;
+    let custom_field_definitions = fetch_backup_custom_field_definitions(db).await?;
+    let custom_field_values = fetch_backup_custom_field_values(db).await?;
+    let app_settings = fetch_backup_app_settings(db).await?;
 
     Ok(BackupData {
         version: "1.0".to_string(),
@@ -251,8 +102,169 @@ async fn build_backup_data(db: &SqlitePool) -> Result<BackupData, AppError> {
         quarter_configs,
         custom_field_definitions,
         custom_field_values,
-        app_settings: serde_json::Value::Object(settings_map),
+        app_settings,
     })
+}
+
+async fn fetch_backup_services(db: &SqlitePool) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(db, "SELECT * FROM services ORDER BY name", |r| {
+        serde_json::json!({
+            "id": r.get::<String, _>("id"),
+            "name": r.get::<String, _>("name"),
+            "category": r.get::<String, _>("category"),
+            "default_severity": r.get::<String, _>("default_severity"),
+            "default_impact": r.get::<String, _>("default_impact"),
+            "description": r.get::<Option<String>, _>("description").unwrap_or_default(),
+            "owner": r.get::<Option<String>, _>("owner").unwrap_or_default(),
+            "tier": r.get::<Option<String>, _>("tier").unwrap_or_else(|| "T3".to_string()),
+            "runbook": r.get::<Option<String>, _>("runbook").unwrap_or_default(),
+            "is_active": r.get::<bool, _>("is_active"),
+            "created_at": r.get::<String, _>("created_at"),
+            "updated_at": r.get::<String, _>("updated_at"),
+        })
+    })
+    .await
+}
+
+async fn fetch_backup_incidents(db: &SqlitePool) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(db, "SELECT * FROM incidents ORDER BY started_at DESC", |r| {
+        serde_json::json!({
+            "id": r.get::<String, _>("id"),
+            "title": r.get::<String, _>("title"),
+            "service_id": r.get::<String, _>("service_id"),
+            "severity": r.get::<String, _>("severity"),
+            "impact": r.get::<String, _>("impact"),
+            "status": r.get::<String, _>("status"),
+            "started_at": r.get::<String, _>("started_at"),
+            "detected_at": r.get::<String, _>("detected_at"),
+            "acknowledged_at": r.get::<Option<String>, _>("acknowledged_at"),
+            "first_response_at": r.get::<Option<String>, _>("first_response_at"),
+            "mitigation_started_at": r.get::<Option<String>, _>("mitigation_started_at"),
+            "responded_at": r.get::<Option<String>, _>("responded_at"),
+            "resolved_at": r.get::<Option<String>, _>("resolved_at"),
+            "reopened_at": r.get::<Option<String>, _>("reopened_at"),
+            "reopen_count": r.get::<i64, _>("reopen_count"),
+            "root_cause": r.get::<Option<String>, _>("root_cause").unwrap_or_default(),
+            "resolution": r.get::<Option<String>, _>("resolution").unwrap_or_default(),
+            "tickets_submitted": r.get::<Option<i64>, _>("tickets_submitted").unwrap_or(0),
+            "affected_users": r.get::<Option<i64>, _>("affected_users").unwrap_or(0),
+            "is_recurring": r.get::<bool, _>("is_recurring"),
+            "recurrence_of": r.get::<Option<String>, _>("recurrence_of"),
+            "lessons_learned": r.get::<Option<String>, _>("lessons_learned").unwrap_or_default(),
+            "action_items": r.get::<Option<String>, _>("action_items").unwrap_or_default(),
+            "external_ref": r.get::<Option<String>, _>("external_ref").unwrap_or_default(),
+            "notes": r.get::<Option<String>, _>("notes").unwrap_or_default(),
+            "created_at": r.get::<String, _>("created_at"),
+            "updated_at": r.get::<String, _>("updated_at"),
+        })
+    })
+    .await
+}
+
+async fn fetch_backup_action_items(db: &SqlitePool) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(db, "SELECT * FROM action_items ORDER BY created_at", |r| {
+        serde_json::json!({
+            "id": r.get::<String, _>("id"),
+            "incident_id": r.get::<String, _>("incident_id"),
+            "title": r.get::<String, _>("title"),
+            "description": r.get::<Option<String>, _>("description").unwrap_or_default(),
+            "status": r.get::<Option<String>, _>("status").unwrap_or_else(|| "Open".to_string()),
+            "owner": r.get::<Option<String>, _>("owner").unwrap_or_default(),
+            "due_date": r.get::<Option<String>, _>("due_date"),
+            "created_at": r.get::<String, _>("created_at"),
+            "updated_at": r.get::<String, _>("updated_at"),
+        })
+    })
+    .await
+}
+
+async fn fetch_backup_quarter_configs(db: &SqlitePool) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(
+        db,
+        "SELECT * FROM quarter_config ORDER BY fiscal_year DESC, quarter_number DESC",
+        |r| {
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "fiscal_year": r.get::<i64, _>("fiscal_year"),
+                "quarter_number": r.get::<i64, _>("quarter_number"),
+                "start_date": r.get::<String, _>("start_date"),
+                "end_date": r.get::<String, _>("end_date"),
+                "label": r.get::<String, _>("label"),
+                "created_at": r.get::<String, _>("created_at"),
+            })
+        },
+    )
+    .await
+}
+
+async fn fetch_backup_custom_field_definitions(
+    db: &SqlitePool,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(
+        db,
+        "SELECT * FROM custom_field_definitions ORDER BY display_order ASC, name ASC",
+        |r| {
+            serde_json::json!({
+                "id": r.get::<String, _>("id"),
+                "name": r.get::<String, _>("name"),
+                "field_type": r.get::<String, _>("field_type"),
+                "options": r.get::<Option<String>, _>("options").unwrap_or_default(),
+                "display_order": r.get::<i64, _>("display_order"),
+                "created_at": r.get::<String, _>("created_at"),
+                "updated_at": r.get::<String, _>("updated_at"),
+            })
+        },
+    )
+    .await
+}
+
+async fn fetch_backup_custom_field_values(
+    db: &SqlitePool,
+) -> Result<Vec<serde_json::Value>, AppError> {
+    fetch_json_rows(
+        db,
+        "SELECT * FROM custom_field_values ORDER BY incident_id, field_id",
+        |r| {
+            serde_json::json!({
+                "incident_id": r.get::<String, _>("incident_id"),
+                "field_id": r.get::<String, _>("field_id"),
+                "value": r.get::<String, _>("value"),
+            })
+        },
+    )
+    .await
+}
+
+async fn fetch_backup_app_settings(db: &SqlitePool) -> Result<serde_json::Value, AppError> {
+    let rows = sqlx::query("SELECT * FROM app_settings")
+        .fetch_all(db)
+        .await
+        .map_err(map_db_error)?;
+
+    let mut settings_map = serde_json::Map::new();
+    for row in &rows {
+        let key: String = Row::get(row, "key");
+        let value: String = Row::get(row, "value");
+        settings_map.insert(key, serde_json::Value::String(value));
+    }
+
+    Ok(serde_json::Value::Object(settings_map))
+}
+
+fn map_db_error(e: sqlx::Error) -> AppError {
+    AppError::Database(e.to_string())
+}
+
+async fn fetch_json_rows<F>(
+    db: &SqlitePool,
+    sql: &str,
+    mapper: F,
+) -> Result<Vec<serde_json::Value>, AppError>
+where
+    F: Fn(&sqlx::sqlite::SqliteRow) -> serde_json::Value,
+{
+    let rows = sqlx::query(sql).fetch_all(db).await.map_err(map_db_error)?;
+    Ok(rows.iter().map(mapper).collect())
 }
 
 async fn write_backup_to_temp_file(json: &str) -> Result<String, AppError> {
