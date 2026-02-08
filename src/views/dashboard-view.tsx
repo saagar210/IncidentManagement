@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState, type ChangeEvent } from "react";
 import {
   BarChart,
   Bar,
@@ -30,6 +30,20 @@ import { PeriodComparisonCard } from "@/components/dashboard/period-comparison-c
 import { TrendAlerts } from "@/components/dashboard/trend-alerts";
 import { CHART_COLORS } from "@/lib/constants";
 import type { CategoryCount } from "@/types/metrics";
+import type { DashboardCardConfig } from "@/hooks/use-dashboard";
+
+const DEFAULT_DASHBOARD_CONFIG: DashboardCardConfig = {
+  mttr: true,
+  mtta: true,
+  recurrence_rate: true,
+  avg_tickets: true,
+  by_severity: true,
+  by_service: true,
+  heatmap: true,
+  hour_histogram: true,
+  trends: true,
+  timeline: false,
+};
 
 function DashboardSkeleton() {
   return (
@@ -77,35 +91,48 @@ export function DashboardView() {
   const { data: quarters, isLoading: quartersLoading } = useQuarters();
   const [selectedQuarterId, setSelectedQuarterId] = useState<string | null>(null);
 
-  const activeQuarterId = selectedQuarterId ?? quarters?.[0]?.id ?? null;
-  const selectedQuarter = quarters?.find((q) => q.id === activeQuarterId);
+  const activeQuarterId = useMemo(
+    () => selectedQuarterId ?? quarters?.[0]?.id ?? null,
+    [selectedQuarterId, quarters]
+  );
+  const selectedQuarter = useMemo(
+    () => quarters?.find((q) => q.id === activeQuarterId),
+    [quarters, activeQuarterId]
+  );
 
   const { data: dashboard, isLoading: dashboardLoading } = useDashboardData(activeQuarterId);
   const { data: cardConfig } = useDashboardConfig();
   const updateConfig = useUpdateDashboardConfig();
 
-  // Derive date range for heatmap/histogram
-  const startDate = selectedQuarter?.start_date?.split("T")[0] ?? "";
-  const endDate = selectedQuarter?.end_date?.split("T")[0] ?? "";
-
-  const { data: heatmapData } = useIncidentHeatmap(startDate, endDate);
-  const { data: hourData } = useIncidentByHour(
-    startDate || null,
-    endDate || null
+  const { startDate, endDate } = useMemo(
+    () => ({
+      startDate: selectedQuarter?.start_date?.split("T")[0] ?? "",
+      endDate: selectedQuarter?.end_date?.split("T")[0] ?? "",
+    }),
+    [selectedQuarter]
   );
 
-  const config = cardConfig ?? {
-    mttr: true,
-    mtta: true,
-    recurrence_rate: true,
-    avg_tickets: true,
-    by_severity: true,
-    by_service: true,
-    heatmap: true,
-    hour_histogram: true,
-    trends: true,
-    timeline: false,
-  };
+  const { data: heatmapData } = useIncidentHeatmap(startDate, endDate);
+  const { data: hourData } = useIncidentByHour(startDate || null, endDate || null);
+
+  const config = useMemo(
+    () => cardConfig ?? DEFAULT_DASHBOARD_CONFIG,
+    [cardConfig]
+  );
+
+  const handleConfigUpdate = useCallback(
+    (nextConfig: DashboardCardConfig) => {
+      updateConfig.mutate(nextConfig);
+    },
+    [updateConfig]
+  );
+
+  const handleQuarterChange = useCallback(
+    (e: ChangeEvent<HTMLSelectElement>) => {
+      setSelectedQuarterId(e.target.value || null);
+    },
+    []
+  );
 
   if (quartersLoading || dashboardLoading) {
     return <DashboardSkeleton />;
@@ -119,21 +146,27 @@ export function DashboardView() {
     );
   }
 
-  const severityData: Array<{ name: string; count: number; color: string }> =
-    dashboard.by_severity.map((item: CategoryCount) => ({
-      name: item.category,
-      count: item.count,
-      color:
-        CHART_COLORS.severity[
-          item.category as keyof typeof CHART_COLORS.severity
-        ] ?? "hsl(240, 5%, 65%)",
-    }));
+  const severityData: Array<{ name: string; count: number; color: string }> = useMemo(
+    () =>
+      dashboard.by_severity.map((item: CategoryCount) => ({
+        name: item.category,
+        count: item.count,
+        color:
+          CHART_COLORS.severity[
+            item.category as keyof typeof CHART_COLORS.severity
+          ] ?? "hsl(240, 5%, 65%)",
+      })),
+    [dashboard.by_severity]
+  );
 
-  const serviceData: Array<{ name: string; count: number }> =
-    dashboard.by_service.map((item: CategoryCount) => ({
-      name: item.category,
-      count: item.count,
-    }));
+  const serviceData: Array<{ name: string; count: number }> = useMemo(
+    () =>
+      dashboard.by_service.map((item: CategoryCount) => ({
+        name: item.category,
+        count: item.count,
+      })),
+    [dashboard.by_service]
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -147,11 +180,11 @@ export function DashboardView() {
         <div className="flex items-center gap-2">
           <MetricCardConfig
             config={config}
-            onUpdate={(c) => updateConfig.mutate(c)}
+            onUpdate={handleConfigUpdate}
           />
           <Select
             value={activeQuarterId ?? ""}
-            onChange={(e) => setSelectedQuarterId(e.target.value || null)}
+            onChange={handleQuarterChange}
             className="w-48"
           >
             <option value="">All time</option>
@@ -218,8 +251,8 @@ export function DashboardView() {
                     <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
                     <Tooltip />
                     <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                      {severityData.map((entry, index) => (
-                        <Cell key={index} fill={entry.color} />
+                      {severityData.map((entry) => (
+                        <Cell key={entry.name} fill={entry.color} />
                       ))}
                     </Bar>
                   </BarChart>
