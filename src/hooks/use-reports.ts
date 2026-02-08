@@ -21,8 +21,8 @@ export function useDiscussionPoints(quarterId: string | null) {
     queryKey: ["discussion-points", quarterId],
     queryFn: () =>
       tauriInvoke<DiscussionPoint[]>("generate_discussion_points", {
-        quarterId: quarterId!,
+        quarterId: quarterId as string,
       }),
-    enabled: !!quarterId,
+    enabled: quarterId !== null && quarterId.length > 0,
   });
 }

@@ -42,8 +42,19 @@ pub async fn generate_report(
 ) -> Result<String, AppError> {
     use base64::Engine;
 
+    // Validate chart images: max 20 images, max 10MB each, max 50MB total
+    const MAX_CHART_IMAGES: usize = 20;
+    const MAX_CHART_IMAGE_SIZE: usize = 10 * 1024 * 1024;
+    const MAX_TOTAL_CHART_SIZE: usize = 50 * 1024 * 1024;
+    if config.chart_images.len() > MAX_CHART_IMAGES {
+        return Err(AppError::Validation(format!(
+            "Too many chart images (max {})", MAX_CHART_IMAGES
+        )));
+    }
+
     // Decode chart images from base64 to raw bytes
     let mut chart_images: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut total_size: usize = 0;
     for (key, b64_value) in &config.chart_images {
         // Strip data URL prefix if present (e.g., "data:image/png;base64,...")
         let raw_b64 = if let Some(pos) = b64_value.find(",") {
@@ -54,6 +65,17 @@ pub async fn generate_report(
 
         match base64::engine::general_purpose::STANDARD.decode(raw_b64) {
             Ok(bytes) => {
+                if bytes.len() > MAX_CHART_IMAGE_SIZE {
+                    return Err(AppError::Validation(format!(
+                        "Chart image '{}' too large (max 10MB decoded)", key
+                    )));
+                }
+                total_size += bytes.len();
+                if total_size > MAX_TOTAL_CHART_SIZE {
+                    return Err(AppError::Validation(
+                        "Total chart image size exceeds 50MB limit".into()
+                    ));
+                }
                 chart_images.insert(key.clone(), bytes);
             }
             Err(e) => {
@@ -92,7 +114,8 @@ pub async fn generate_report(
     );
     let temp_path = temp_dir.join(&filename);
 
-    std::fs::write(&temp_path, &docx_bytes)
+    tokio::fs::write(&temp_path, &docx_bytes)
+        .await
         .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
 
     temp_path
@@ -106,11 +129,36 @@ pub async fn save_report(
     temp_path: String,
     save_path: String,
 ) -> Result<(), AppError> {
-    std::fs::copy(&temp_path, &save_path)
+    // Validate temp_path is actually in the temp directory
+    let temp_dir = std::env::temp_dir();
+    let canonical_temp = std::fs::canonicalize(&temp_path)
+        .map_err(|e| AppError::Report(format!("Invalid temp path: {}", e)))?;
+    if !canonical_temp.starts_with(&temp_dir) {
+        return Err(AppError::Validation(
+            "Source path must be within the system temp directory".into(),
+        ));
+    }
+
+    // Validate save_path doesn't contain path traversal
+    let save = std::path::Path::new(&save_path);
+    if save_path.contains("..") {
+        return Err(AppError::Validation(
+            "Save path must not contain path traversal sequences".into(),
+        ));
+    }
+    // Must end in .docx
+    if save.extension().and_then(|e| e.to_str()) != Some("docx") {
+        return Err(AppError::Validation(
+            "Save path must have .docx extension".into(),
+        ));
+    }
+
+    tokio::fs::copy(&temp_path, &save_path)
+        .await
         .map_err(|e| AppError::Report(format!("Failed to save report: {}", e)))?;
 
     // Clean up temp file (best-effort)
-    let _ = std::fs::remove_file(&temp_path);
+    let _ = tokio::fs::remove_file(&temp_path).await;
 
     Ok(())
 }

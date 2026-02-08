@@ -45,10 +45,11 @@ pub fn build(
     docx = docx.add_table(table);
     docx = docx.add_paragraph(spacer());
 
-    // Add chart images if provided
+    // Add chart images if provided (validate PNG magic bytes first)
+    const PNG_MAGIC: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
     for key in &["severity_chart", "service_chart", "trend_chart"] {
         if let Some(bytes) = chart_images.get(*key) {
-            if !bytes.is_empty() {
+            if bytes.len() >= 8 && bytes[..8] == *PNG_MAGIC {
                 docx = docx.add_paragraph(body_text(&format!("Chart: {}", key.replace('_', " "))));
                 // 5486400 EMU ~= 6 inches wide, 3200400 ~= 3.5 inches tall
                 docx = add_chart_image(docx, bytes, 5486400, 3200400);

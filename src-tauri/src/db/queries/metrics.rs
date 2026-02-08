@@ -109,10 +109,15 @@ async fn calc_avg_tickets(db: &SqlitePool, range: &DateRange, filters: &MetricFi
 }
 
 async fn incidents_by_category(db: &SqlitePool, range: &DateRange, filters: &MetricFilters, column: &str) -> AppResult<Vec<CategoryCount>> {
+    // Whitelist column names to prevent SQL injection
+    let safe_column = match column {
+        "severity" | "impact" | "status" => column,
+        _ => return Err(AppError::Validation(format!("Invalid grouping column: {}", column))),
+    };
     let (wc, params) = build_where_clause(range, filters);
     let sql = format!(
         "SELECT i.{} as category, COUNT(*) as cnt FROM incidents i WHERE {} GROUP BY i.{} ORDER BY cnt DESC",
-        column, wc, column
+        safe_column, wc, safe_column
     );
     let mut query = sqlx::query(&sql);
     for p in &params {

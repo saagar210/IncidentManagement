@@ -85,7 +85,7 @@ export function CSVImportDialog({
       filters: [{ name: "CSV Files", extensions: ["csv"] }],
     });
     if (selected) {
-      const path = typeof selected === "string" ? selected : selected;
+      const path = selected;
       setFilePath(path);
       setFileName(path.split("/").pop() ?? path.split("\\").pop() ?? path);
 
@@ -117,9 +117,13 @@ export function CSVImportDialog({
     const tpl = templates?.find((t) => t.id === templateId);
     if (tpl) {
       try {
-        const parsed = JSON.parse(tpl.column_mapping) as ColumnMapping;
-        setMappings(parsed.mappings);
-        setDefaultValues(parsed.default_values);
+        const parsed = JSON.parse(tpl.column_mapping);
+        if (!parsed || typeof parsed.mappings !== "object" || typeof parsed.default_values !== "object") {
+          throw new Error("Invalid template structure");
+        }
+        const validated = parsed as ColumnMapping;
+        setMappings(validated.mappings);
+        setDefaultValues(validated.default_values);
       } catch {
         toast({
           title: "Invalid template",

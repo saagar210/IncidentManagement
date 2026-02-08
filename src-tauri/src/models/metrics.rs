@@ -67,9 +67,15 @@ impl MetricResult {
 }
 
 pub fn calculate_trend(current: f64, previous: Option<f64>) -> String {
+    if current.is_nan() || current.is_infinite() {
+        return "NoData".to_string();
+    }
     match previous {
         None => "NoData".to_string(),
         Some(prev) => {
+            if prev.is_nan() || prev.is_infinite() {
+                return "NoData".to_string();
+            }
             if prev == 0.0 && current == 0.0 {
                 "Flat".to_string()
             } else if prev == 0.0 {
@@ -89,6 +95,9 @@ pub fn calculate_trend(current: f64, previous: Option<f64>) -> String {
 }
 
 pub fn format_minutes(minutes: f64) -> String {
+    if minutes.is_nan() || minutes.is_infinite() {
+        return "—".to_string();
+    }
     if minutes < 1.0 {
         "< 1 min".to_string()
     } else if minutes < 60.0 {

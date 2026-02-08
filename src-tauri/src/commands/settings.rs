@@ -204,7 +204,8 @@ pub async fn export_all_data(db: State<'_, SqlitePool>) -> Result<String, AppErr
     let file_name = format!("incident_backup_{}.json", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
     let file_path = temp_dir.join(file_name);
 
-    std::fs::write(&file_path, &json)
+    tokio::fs::write(&file_path, &json)
+        .await
         .map_err(|e| AppError::Io(e))?;
 
     file_path
@@ -218,7 +219,18 @@ pub async fn import_backup(
     db: State<'_, SqlitePool>,
     file_path: String,
 ) -> Result<BackupImportResult, AppError> {
-    let content = std::fs::read_to_string(&file_path)
+    // Validate file size (max 50MB to prevent OOM)
+    let metadata = tokio::fs::metadata(&file_path)
+        .await
+        .map_err(|e| AppError::Io(e))?;
+    if metadata.len() > 50 * 1024 * 1024 {
+        return Err(AppError::Validation(
+            "Backup file too large (max 50MB)".into(),
+        ));
+    }
+
+    let content = tokio::fs::read_to_string(&file_path)
+        .await
         .map_err(|e| AppError::Io(e))?;
 
     let backup: BackupData = serde_json::from_str(&content)

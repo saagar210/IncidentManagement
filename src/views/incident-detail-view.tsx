@@ -44,16 +44,14 @@ interface IncidentFormData {
 }
 
 function computePriority(severity: string, impact: string): string {
-  const severityMap: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-  const impactMap: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 };
-  const s = severityMap[severity] ?? 3;
-  const i = impactMap[impact] ?? 3;
-  const avg = (s + i) / 2;
-  if (avg <= 0.5) return "P0";
-  if (avg <= 1.5) return "P1";
-  if (avg <= 2) return "P2";
-  if (avg <= 2.5) return "P3";
-  return "P4";
+  // Must match the Rust priority matrix exactly
+  const matrix: Record<string, Record<string, string>> = {
+    Critical: { Critical: "P0", High: "P1", Medium: "P1", Low: "P2" },
+    High:     { Critical: "P1", High: "P1", Medium: "P2", Low: "P3" },
+    Medium:   { Critical: "P2", High: "P2", Medium: "P3", Low: "P3" },
+    Low:      { Critical: "P3", High: "P3", Medium: "P4", Low: "P4" },
+  };
+  return matrix[severity]?.[impact] ?? "P4";
 }
 
 function toLocalDatetime(isoStr: string | null | undefined): string {
@@ -98,9 +96,9 @@ function computeDuration(started: string, resolved: string): string {
 export function IncidentDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const isEditMode = !!id;
+  const isEditMode = !!id && id !== "new";
 
-  const { data: incident, isLoading: incidentLoading } = useIncident(id);
+  const { data: incident, isLoading: incidentLoading } = useIncident(isEditMode ? id : undefined);
   const { data: services } = useActiveServices();
   const createMutation = useCreateIncident();
   const updateMutation = useUpdateIncident();
@@ -211,12 +209,16 @@ export function IncidentDetailView() {
       notes: data.notes,
     };
 
-    if (isEditMode && id) {
-      await updateMutation.mutateAsync({ id, incident: payload });
-    } else {
-      await createMutation.mutateAsync(payload);
+    try {
+      if (isEditMode && id) {
+        await updateMutation.mutateAsync({ id, incident: payload });
+      } else {
+        await createMutation.mutateAsync(payload);
+      }
+      navigate("/incidents");
+    } catch {
+      // Error is handled by global mutation error handler
     }
-    navigate("/incidents");
   };
 
   const handleDelete = async () => {
@@ -225,8 +227,12 @@ export function IncidentDetailView() {
       "Are you sure you want to delete this incident? This cannot be undone."
     );
     if (!confirmed) return;
-    await deleteMutation.mutateAsync(id);
-    navigate("/incidents");
+    try {
+      await deleteMutation.mutateAsync(id);
+      navigate("/incidents");
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   if (isEditMode && incidentLoading) {

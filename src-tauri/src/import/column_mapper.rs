@@ -148,7 +148,7 @@ fn map_single_row(
         if let Some(csv_col) = reverse.get(field) {
             if let Some(val) = row.get(*csv_col) {
                 if !val.is_empty() {
-                    return val.clone();
+                    return sanitize_csv_field(val);
                 }
             }
         }
@@ -290,4 +290,21 @@ fn normalize_enum_value(value: &str, valid: &[&str]) -> String {
         .find(|v| v.eq_ignore_ascii_case(value))
         .map(|v| v.to_string())
         .unwrap_or_else(|| value.to_string())
+}
+
+/// Sanitize a CSV field to prevent formula injection in downstream tools.
+/// Prefixes dangerous leading characters with a single quote.
+/// Covers OWASP recommendations: =, +, -, @, \t, \r, | (pipe/cmd), { (SLK format).
+fn sanitize_csv_field(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    match trimmed.as_bytes()[0] {
+        b'=' | b'+' | b'@' | b'\t' | b'\r' | b'|' | b'{' => format!("'{}", trimmed),
+        b'-' if trimmed.len() > 1 && !trimmed[1..].starts_with(|c: char| c.is_ascii_digit()) => {
+            format!("'{}", trimmed)
+        }
+        _ => trimmed.to_string(),
+    }
 }

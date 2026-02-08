@@ -53,9 +53,28 @@ pub fn parse_csv_rows(file_path: &str) -> AppResult<Vec<HashMap<String, String>>
     Ok(rows)
 }
 
+/// Maximum CSV file size: 10MB
+const MAX_CSV_SIZE: u64 = 10 * 1024 * 1024;
+
 fn build_reader(file_path: &str) -> AppResult<csv::Reader<std::fs::File>> {
+    // Reject path traversal attempts
+    if file_path.contains("..") {
+        return Err(AppError::Csv("File path must not contain '..'".into()));
+    }
+
     let file = std::fs::File::open(file_path)
-        .map_err(|e| AppError::Csv(format!("Cannot open CSV file '{}': {}", file_path, e)))?;
+        .map_err(|e| AppError::Csv(format!("Cannot open CSV file: {}", e)))?;
+
+    // Check file size before reading
+    let metadata = file.metadata()
+        .map_err(|e| AppError::Csv(format!("Cannot read file metadata: {}", e)))?;
+    if metadata.len() > MAX_CSV_SIZE {
+        return Err(AppError::Csv(format!(
+            "CSV file too large ({:.1} MB). Maximum is {} MB.",
+            metadata.len() as f64 / (1024.0 * 1024.0),
+            MAX_CSV_SIZE / (1024 * 1024)
+        )));
+    }
 
     let reader = csv::ReaderBuilder::new()
         .has_headers(true)

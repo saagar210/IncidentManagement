@@ -24,6 +24,7 @@ pub async fn update_incident(
     id: String,
     incident: UpdateIncidentRequest,
 ) -> Result<Incident, AppError> {
+    incident.validate()?;
     incidents::update_incident(&*db, &id, &incident).await
 }
 
@@ -64,6 +65,11 @@ pub async fn search_incidents(
     db: State<'_, SqlitePool>,
     query: String,
 ) -> Result<Vec<Incident>, AppError> {
+    if query.len() > 500 {
+        return Err(AppError::Validation(
+            "Search query too long (max 500 characters)".into(),
+        ));
+    }
     incidents::search_incidents(&*db, &query).await
 }
 
@@ -94,6 +100,7 @@ pub async fn update_action_item(
     id: String,
     item: UpdateActionItemRequest,
 ) -> Result<ActionItem, AppError> {
+    item.validate()?;
     incidents::update_action_item(&*db, &id, &item).await
 }
 

@@ -18,6 +18,11 @@ const queryClient = new QueryClient({
       retry: 1,
       refetchOnWindowFocus: false,
     },
+    mutations: {
+      onError: (error: unknown) => {
+        console.error("Mutation error:", error);
+      },
+    },
   },
 });
 
@@ -54,8 +59,8 @@ export default function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AppRoutes />
+          <Toaster />
         </BrowserRouter>
-        <Toaster />
       </QueryClientProvider>
     </ErrorBoundary>
   );

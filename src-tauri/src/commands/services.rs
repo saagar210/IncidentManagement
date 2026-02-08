@@ -11,7 +11,7 @@ pub async fn create_service(
     service: CreateServiceRequest,
 ) -> Result<Service, AppError> {
     service.validate()?;
-    let id = format!("svc-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("x"));
+    let id = format!("svc-{}", uuid::Uuid::new_v4());
     services::insert_service(&*db, &id, &service).await
 }
 
@@ -21,6 +21,7 @@ pub async fn update_service(
     id: String,
     service: UpdateServiceRequest,
 ) -> Result<Service, AppError> {
+    service.validate()?;
     services::update_service(&*db, &id, &service).await
 }
 

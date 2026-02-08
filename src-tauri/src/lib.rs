@@ -5,6 +5,9 @@ mod import;
 mod models;
 mod reports;
 
+#[cfg(test)]
+mod security_tests;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

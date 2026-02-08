@@ -346,25 +346,24 @@ fn calc_avg_duration(incidents: &[Incident]) -> f64 {
 }
 
 fn calc_avg_mtta(incidents: &[Incident]) -> f64 {
-    let responded: Vec<&Incident> = incidents
-        .iter()
-        .filter(|i| i.responded_at.is_some())
-        .collect();
-    if responded.is_empty() {
-        return 0.0;
-    }
     // MTTA = responded_at - detected_at in minutes
-    // Since we store ISO strings, we parse them
-    let total: f64 = responded
+    // Only count incidents where both timestamps parse successfully and duration is non-negative
+    let mtta_values: Vec<f64> = incidents
         .iter()
         .filter_map(|i| {
             let detected = chrono::NaiveDateTime::parse_from_str(&i.detected_at, "%Y-%m-%dT%H:%M:%SZ").ok()?;
             let responded = chrono::NaiveDateTime::parse_from_str(i.responded_at.as_ref()?, "%Y-%m-%dT%H:%M:%SZ").ok()?;
             let diff = responded.signed_duration_since(detected);
-            Some(diff.num_minutes() as f64)
+            let minutes = diff.num_minutes() as f64;
+            // Filter out negative durations (bad data: responded before detected)
+            if minutes < 0.0 { None } else { Some(minutes) }
         })
-        .sum();
-    total / responded.len() as f64
+        .collect();
+    if mtta_values.is_empty() {
+        return 0.0;
+    }
+    let total: f64 = mtta_values.iter().sum();
+    total / mtta_values.len() as f64
 }
 
 fn calc_recurrence_rate(incidents: &[Incident]) -> f64 {

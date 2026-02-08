@@ -58,7 +58,7 @@ function MetricCard({ label, metric, invertGood = false }: MetricCardProps) {
         <div className="text-2xl font-bold">{metric.formatted_value}</div>
         <div className={cn("mt-1 flex items-center gap-1 text-xs", trendColor(metric.trend, invertGood))}>
           <TrendIcon trend={metric.trend} />
-          {metric.previous_value !== null && (
+          {metric.previous_value != null && (
             <span>prev: {metric.previous_value.toFixed(1)}</span>
           )}
         </div>

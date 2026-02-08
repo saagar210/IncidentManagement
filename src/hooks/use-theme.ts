@@ -29,17 +29,21 @@ export function useTheme() {
 
   // Load persisted theme on mount
   useEffect(() => {
+    let mounted = true;
     tauriInvoke<string | null>("get_setting", { key: "theme" })
       .then((value) => {
-        const t = (value as Theme) || "system";
+        if (!mounted) return;
+        const t: Theme = value === "light" || value === "dark" ? value : "system";
         setThemeState(t);
         applyTheme(t);
         setLoaded(true);
       })
       .catch(() => {
+        if (!mounted) return;
         applyTheme("system");
         setLoaded(true);
       });
+    return () => { mounted = false; };
   }, []);
 
   // Listen for system theme changes when in "system" mode

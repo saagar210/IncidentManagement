@@ -86,9 +86,13 @@ function ServicesTab() {
       default_impact: data.default_impact,
       description: data.description || undefined,
     };
-    await createService.mutateAsync(req);
-    addForm.reset();
-    setShowAdd(false);
+    try {
+      await createService.mutateAsync(req);
+      addForm.reset();
+      setShowAdd(false);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   const startEdit = (service: Service) => {
@@ -111,15 +115,23 @@ function ServicesTab() {
       default_impact: data.default_impact,
       description: data.description || undefined,
     };
-    await updateService.mutateAsync({ id: editingId, service: req });
-    setEditingId(null);
+    try {
+      await updateService.mutateAsync({ id: editingId, service: req });
+      setEditingId(null);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   const handleToggleActive = async (service: Service) => {
-    await updateService.mutateAsync({
-      id: service.id,
-      service: { is_active: !service.is_active },
-    });
+    try {
+      await updateService.mutateAsync({
+        id: service.id,
+        service: { is_active: !service.is_active },
+      });
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   const handleDelete = async (service: Service) => {
@@ -127,7 +139,11 @@ function ServicesTab() {
       `Delete service "${service.name}"? This will fail if incidents reference it.`
     );
     if (!confirmed) return;
-    await deleteService.mutateAsync(service.id);
+    try {
+      await deleteService.mutateAsync(service.id);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   if (isLoading) {
@@ -363,9 +379,13 @@ function QuartersTab() {
       end_date: data.end_date,
       label: data.label || `FY${data.fiscal_year} Q${data.quarter_number}`,
     };
-    await upsertQuarter.mutateAsync(req);
-    addForm.reset();
-    setShowAdd(false);
+    try {
+      await upsertQuarter.mutateAsync(req);
+      addForm.reset();
+      setShowAdd(false);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   const startEdit = (quarter: QuarterConfig) => {
@@ -389,8 +409,12 @@ function QuartersTab() {
       end_date: data.end_date,
       label: data.label || `FY${data.fiscal_year} Q${data.quarter_number}`,
     };
-    await upsertQuarter.mutateAsync(req);
-    setEditingId(null);
+    try {
+      await upsertQuarter.mutateAsync(req);
+      setEditingId(null);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   const handleDelete = async (quarter: QuarterConfig) => {
@@ -398,7 +422,11 @@ function QuartersTab() {
       `Delete quarter "${quarter.label}"? This cannot be undone.`
     );
     if (!confirmed) return;
-    await deleteQuarter.mutateAsync(quarter.id);
+    try {
+      await deleteQuarter.mutateAsync(quarter.id);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   if (isLoading) {
@@ -617,7 +645,7 @@ function ImportDataTab() {
         filters: [{ name: "JSON Files", extensions: ["json"] }],
       });
       if (!selected) return;
-      const filePath = typeof selected === "string" ? selected : selected;
+      const filePath = selected;
       const result = await importBackup.mutateAsync(filePath);
 
       const parts: string[] = [];
@@ -653,7 +681,11 @@ function ImportDataTab() {
       `Delete template "${name}"? This cannot be undone.`
     );
     if (!confirmed) return;
-    await deleteTemplate.mutateAsync(id);
+    try {
+      await deleteTemplate.mutateAsync(id);
+    } catch {
+      // Error is handled by global mutation error handler
+    }
   };
 
   return (

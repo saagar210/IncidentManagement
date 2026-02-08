@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 
 interface KeyboardShortcutOptions {
@@ -10,6 +10,9 @@ interface KeyboardShortcutOptions {
 
 export function useKeyboardShortcuts(options: KeyboardShortcutOptions = {}) {
   const navigate = useNavigate();
+  // Use ref to avoid re-attaching the listener on every render
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -24,21 +27,16 @@ export function useKeyboardShortcuts(options: KeyboardShortcutOptions = {}) {
         switch (e.key) {
           case "n":
             e.preventDefault();
-            options.onQuickAdd?.();
-            break;
-          case "r":
-            if (e.shiftKey) break; // Don't override browser refresh
-            e.preventDefault();
-            options.onReport?.();
+            optionsRef.current.onQuickAdd?.();
             break;
           case "k":
             e.preventDefault();
-            options.onSearch?.();
+            optionsRef.current.onSearch?.();
             break;
           case "s":
-            if (options.onSave) {
+            if (optionsRef.current.onSave) {
               e.preventDefault();
-              options.onSave();
+              optionsRef.current.onSave();
             }
             break;
           case "1":
@@ -63,11 +61,11 @@ export function useKeyboardShortcuts(options: KeyboardShortcutOptions = {}) {
       // "/" to focus search when not in input
       if (e.key === "/" && !isInput) {
         e.preventDefault();
-        options.onSearch?.();
+        optionsRef.current.onSearch?.();
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [navigate, options]);
+  }, [navigate]);
 }

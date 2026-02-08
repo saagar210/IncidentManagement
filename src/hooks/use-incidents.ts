@@ -18,10 +18,11 @@ export function useIncidents(filters: IncidentFilters = {}) {
 }
 
 export function useIncident(id: string | undefined) {
+  const isValidId = !!id && id !== "new";
   return useQuery({
     queryKey: ["incident", id],
     queryFn: () => tauriInvoke<Incident>("get_incident", { id }),
-    enabled: !!id,
+    enabled: isValidId,
   });
 }
 
@@ -102,10 +103,8 @@ export function useCreateActionItem() {
   return useMutation({
     mutationFn: (item: CreateActionItemRequest) =>
       tauriInvoke<ActionItem>("create_action_item", { item }),
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["action-items", variables.incident_id],
-      });
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["action-items"] });
     },
   });
 }

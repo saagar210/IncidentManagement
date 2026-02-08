@@ -219,9 +219,14 @@ pub async fn list_incidents(
 }
 
 pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Incident>> {
-    let pattern = format!("%{}%", query);
+    // Escape LIKE wildcard characters so they match literally
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{}%", escaped);
     let rows = sqlx::query(
-        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.title LIKE ?1 OR i.root_cause LIKE ?1 OR i.resolution LIKE ?1 OR i.notes LIKE ?1 OR i.external_ref LIKE ?1 ORDER BY i.started_at DESC"
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.title LIKE ?1 ESCAPE '\\' OR i.root_cause LIKE ?1 ESCAPE '\\' OR i.resolution LIKE ?1 ESCAPE '\\' OR i.notes LIKE ?1 ESCAPE '\\' OR i.external_ref LIKE ?1 ESCAPE '\\' ORDER BY i.started_at DESC"
     )
     .bind(&pattern)
     .fetch_all(db)
@@ -232,16 +237,37 @@ pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Inc
 }
 
 pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -> AppResult<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    // Validate status before beginning transaction
+    const VALID_STATUSES: &[&str] = &["Active", "Monitoring", "Resolved", "Post-Mortem"];
+    if !VALID_STATUSES.contains(&status) {
+        return Err(AppError::Validation(format!(
+            "Invalid status '{}'. Must be one of: {}",
+            status,
+            VALID_STATUSES.join(", ")
+        )));
+    }
+
+    let mut tx = db.begin()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
     for id in ids {
         sqlx::query(
             "UPDATE incidents SET status = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ?"
         )
         .bind(status)
         .bind(id)
-        .execute(db)
+        .execute(&mut *tx)
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
     }
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
     Ok(())
 }
 

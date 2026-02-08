@@ -74,12 +74,14 @@ export function ReportsView() {
   }, []);
 
   const toggleAll = useCallback((checked: boolean) => {
-    const updated = { ...sections };
-    for (const key of Object.keys(updated) as (keyof ReportSections)[]) {
-      updated[key] = checked;
-    }
-    setSections(updated);
-  }, [sections]);
+    setSections((prev) => {
+      const updated = { ...prev };
+      for (const key of Object.keys(updated) as (keyof ReportSections)[]) {
+        updated[key] = checked;
+      }
+      return updated;
+    });
+  }, []);
 
   const allChecked = Object.values(sections).every(Boolean);
   const noneChecked = Object.values(sections).every((v) => !v);
