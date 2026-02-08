@@ -89,12 +89,13 @@ jobs:
             echo "::warning title=Codacy disabled::Skipping Codacy analysis because CODACY_PROJECT_TOKEN is not configured."
           fi
 
-      - name: Run Codacy analysis
+      - name: Run Codacy analysis (no upload)
         if: ${{ steps.codacy_token.outputs.enabled == 'true' }}
         uses: codacy/codacy-analysis-cli-action@v4
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
           # Docker-based tools (e.g. Trivy/SBOM) have produced non-parseable output for the
-          # Codacy CLI in this repo, causing the job to fail. Disable them so upload succeeds.
+          # Codacy CLI in this repo, causing the job to fail. Disable them for a stable CI run.
           run-docker-tools: false
-          upload: true
+          # Upload requires enabling Codacy "Repository Analysis" for the project.
+          upload: false
