@@ -46,16 +46,21 @@ pub fn run() {
             commands::settings::delete_quarter_config,
             commands::settings::get_setting,
             commands::settings::set_setting,
+            commands::settings::export_all_data,
+            commands::settings::import_backup,
             // Metrics
             commands::metrics::get_dashboard_data,
             // Reports (Phase 3)
             commands::reports::generate_report,
+            commands::reports::save_report,
             commands::reports::generate_discussion_points,
             // Import (Phase 4)
             commands::import::parse_csv_headers,
             commands::import::preview_csv_import,
             commands::import::execute_csv_import,
             commands::import::list_import_templates,
+            commands::import::save_import_template,
+            commands::import::delete_import_template,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

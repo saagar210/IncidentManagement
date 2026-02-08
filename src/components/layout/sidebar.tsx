@@ -1,6 +1,8 @@
 import { NavLink } from "react-router-dom";
-import { BarChart3, AlertTriangle, FileText, Settings } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTheme, type Theme } from "@/hooks/use-theme";
+import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: BarChart3, to: "/dashboard", shortcut: "1" },
@@ -9,7 +11,29 @@ const NAV_ITEMS = [
   { label: "Settings", icon: Settings, to: "/settings", shortcut: "4" },
 ] as const;
 
+const THEME_CYCLE: Theme[] = ["system", "light", "dark"];
+const THEME_ICONS = {
+  system: Monitor,
+  light: Sun,
+  dark: Moon,
+} as const;
+const THEME_LABELS: Record<Theme, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
 export function Sidebar() {
+  const { theme, setTheme } = useTheme();
+
+  const cycleTheme = () => {
+    const currentIdx = THEME_CYCLE.indexOf(theme);
+    const nextIdx = (currentIdx + 1) % THEME_CYCLE.length;
+    setTheme(THEME_CYCLE[nextIdx]);
+  };
+
+  const ThemeIcon = THEME_ICONS[theme];
+
   return (
     <aside className="flex h-full w-60 flex-col border-r border-sidebar-border bg-sidebar-background">
       <div className="flex h-14 items-center gap-2 border-b border-sidebar-border px-4">
@@ -43,8 +67,16 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t border-sidebar-border p-4">
-        <p className="text-xs text-sidebar-foreground/50">Theme toggle (coming soon)</p>
+      <div className="border-t border-sidebar-border p-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={cycleTheme}
+          className="w-full justify-start gap-2 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+        >
+          <ThemeIcon className="h-4 w-4" />
+          <span className="text-xs">{THEME_LABELS[theme]}</span>
+        </Button>
       </div>
     </aside>
   );

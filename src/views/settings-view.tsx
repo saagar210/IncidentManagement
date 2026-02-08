@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, Download, Upload, FileSpreadsheet } from "lucide-react";
 import { useForm } from "react-hook-form";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { copyFile } from "@tauri-apps/plugin-fs";
 import {
   useServices,
   useCreateService,
@@ -12,6 +14,12 @@ import {
   useUpsertQuarter,
   useDeleteQuarter,
 } from "@/hooks/use-quarters";
+import {
+  useImportTemplates,
+  useDeleteTemplate,
+  useExportAllData,
+  useImportBackup,
+} from "@/hooks/use-import";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -24,6 +32,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { CSVImportDialog } from "@/components/import/csv-import-dialog";
+import { toast } from "@/components/ui/use-toast";
 import {
   SEVERITY_LEVELS,
   IMPACT_LEVELS,
@@ -567,12 +577,180 @@ function QuartersTab() {
   );
 }
 
+// ===================== Import & Data Tab =====================
+
+function ImportDataTab() {
+  const { data: templates, isLoading: templatesLoading } = useImportTemplates();
+  const deleteTemplate = useDeleteTemplate();
+  const exportData = useExportAllData();
+  const importBackup = useImportBackup();
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
+
+  const handleExport = async () => {
+    try {
+      const tempPath = await exportData.mutateAsync();
+      // Let user pick where to save
+      const savePath = await save({
+        defaultPath: "incident_backup.json",
+        filters: [{ name: "JSON Files", extensions: ["json"] }],
+      });
+      if (savePath) {
+        await copyFile(tempPath, savePath);
+        toast({
+          title: "Export complete",
+          description: `Backup saved to ${savePath}`,
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Export failed",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleImportBackup = async () => {
+    try {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: "JSON Files", extensions: ["json"] }],
+      });
+      if (!selected) return;
+      const filePath = typeof selected === "string" ? selected : selected;
+      const result = await importBackup.mutateAsync(filePath);
+
+      const parts: string[] = [];
+      if (result.services > 0) parts.push(`${result.services} services`);
+      if (result.incidents > 0) parts.push(`${result.incidents} incidents`);
+      if (result.action_items > 0) parts.push(`${result.action_items} action items`);
+      if (result.quarter_configs > 0) parts.push(`${result.quarter_configs} quarters`);
+      if (result.settings > 0) parts.push(`${result.settings} settings`);
+
+      toast({
+        title: "Import complete",
+        description: parts.length > 0 ? `Imported: ${parts.join(", ")}` : "No new data imported",
+      });
+
+      if (result.errors.length > 0) {
+        toast({
+          title: "Import warnings",
+          description: `${result.errors.length} error(s) occurred during import`,
+          variant: "destructive",
+        });
+      }
+    } catch (err) {
+      toast({
+        title: "Import failed",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleDeleteTemplate = async (id: string, name: string) => {
+    const confirmed = window.confirm(
+      `Delete template "${name}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await deleteTemplate.mutateAsync(id);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* CSV Import */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">CSV Import</h2>
+        <p className="text-sm text-muted-foreground">
+          Import incidents from a CSV file with column mapping.
+        </p>
+        <Button onClick={() => setCsvImportOpen(true)}>
+          <FileSpreadsheet className="h-4 w-4" />
+          Import from CSV
+        </Button>
+        <CSVImportDialog
+          open={csvImportOpen}
+          onOpenChange={setCsvImportOpen}
+        />
+      </div>
+
+      {/* Saved Templates */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">Saved Import Templates</h2>
+        {templatesLoading ? (
+          <p className="text-sm text-muted-foreground">Loading templates...</p>
+        ) : templates && templates.length > 0 ? (
+          <div className="space-y-1">
+            {templates.map((tpl) => (
+              <div
+                key={tpl.id}
+                className="flex items-center justify-between rounded border px-3 py-2"
+              >
+                <div>
+                  <span className="text-sm font-medium">{tpl.name}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    Created {tpl.created_at.split("T")[0]}
+                  </span>
+                </div>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  onClick={() => handleDeleteTemplate(tpl.id, tpl.name)}
+                  disabled={deleteTemplate.isPending}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No saved templates. Save one during CSV import.
+          </p>
+        )}
+      </div>
+
+      {/* Data Backup */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">Data Backup</h2>
+        <p className="text-sm text-muted-foreground">
+          Export all data as JSON or restore from a backup.
+        </p>
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            onClick={handleExport}
+            disabled={exportData.isPending}
+          >
+            <Download className="h-4 w-4" />
+            {exportData.isPending ? "Exporting..." : "Export All Data"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleImportBackup}
+            disabled={importBackup.isPending}
+          >
+            <Upload className="h-4 w-4" />
+            {importBackup.isPending ? "Importing..." : "Import Backup"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===================== Settings View =====================
 
-type SettingsTab = "services" | "quarters";
+type SettingsTab = "services" | "quarters" | "import";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("services");
+
+  const tabs: { key: SettingsTab; label: string }[] = [
+    { key: "services", label: "Services" },
+    { key: "quarters", label: "Quarters" },
+    { key: "import", label: "Import & Data" },
+  ];
 
   return (
     <div className="space-y-6 p-6">
@@ -580,31 +758,25 @@ export function SettingsView() {
 
       <div className="border-b">
         <nav className="-mb-px flex gap-4">
-          <button
-            onClick={() => setActiveTab("services")}
-            className={`border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${
-              activeTab === "services"
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Services
-          </button>
-          <button
-            onClick={() => setActiveTab("quarters")}
-            className={`border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${
-              activeTab === "quarters"
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            Quarters
-          </button>
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? "border-primary text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
       </div>
 
       {activeTab === "services" && <ServicesTab />}
       {activeTab === "quarters" && <QuartersTab />}
+      {activeTab === "import" && <ImportDataTab />}
     </div>
   );
 }
