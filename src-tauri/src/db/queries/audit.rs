@@ -2,6 +2,7 @@ use sqlx::{Row, SqlitePool};
 
 use crate::error::{AppError, AppResult};
 use crate::models::audit::{AuditEntry, AuditFilters, NotificationSummary};
+use crate::models::priority::{Impact, Severity, calculate_priority};
 
 fn parse_audit_entry(row: &sqlx::sqlite::SqliteRow) -> AuditEntry {
     AuditEntry {
@@ -100,35 +101,60 @@ pub async fn get_notification_summary(pool: &SqlitePool) -> AppResult<Notificati
     .await
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    // SLA breaches: count active incidents where elapsed > target
-    // This is computed client-side to avoid complex SQL, so we approximate by
-    // counting active incidents that have been active longer than their SLA resolve target
-    let sla_breaches: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM incidents i
-         JOIN sla_definitions s ON s.is_active = 1
-         WHERE i.status = 'Active'
-         AND i.deleted_at IS NULL
-         AND s.priority = (
-             CASE
-                 WHEN i.severity = 'Critical' AND i.impact = 'Critical' THEN 'P0'
-                 WHEN i.severity = 'Critical' AND i.impact IN ('High', 'Medium') THEN 'P1'
-                 WHEN i.severity = 'High' AND i.impact = 'Critical' THEN 'P1'
-                 WHEN i.severity = 'High' AND i.impact = 'High' THEN 'P1'
-                 WHEN i.severity = 'Critical' AND i.impact = 'Low' THEN 'P2'
-                 WHEN i.severity = 'High' AND i.impact = 'Medium' THEN 'P2'
-                 WHEN i.severity = 'Medium' AND i.impact IN ('Critical', 'High') THEN 'P2'
-                 WHEN i.severity = 'High' AND i.impact = 'Low' THEN 'P3'
-                 WHEN i.severity = 'Medium' AND i.impact = 'Medium' THEN 'P3'
-                 WHEN i.severity = 'Medium' AND i.impact = 'Low' THEN 'P3'
-                 WHEN i.severity = 'Low' AND i.impact IN ('Critical', 'High') THEN 'P3'
-                 ELSE 'P4'
-             END
-         )
-         AND CAST((julianday('now') - julianday(i.started_at)) * 1440 AS INTEGER) > s.resolve_time_minutes",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(|e| AppError::Database(e.to_string()))?;
+    // SLA breaches: compute in Rust using the same priority matrix as everywhere else
+    let sla_breaches = {
+        let active_rows = sqlx::query(
+            "SELECT i.severity, i.impact, i.started_at FROM incidents i
+             WHERE i.status = 'Active' AND i.deleted_at IS NULL",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let sla_defs = sqlx::query(
+            "SELECT priority, resolve_time_minutes FROM sla_definitions WHERE is_active = 1",
+        )
+        .fetch_all(pool)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let sla_map: std::collections::HashMap<String, i64> = sla_defs
+            .iter()
+            .map(|r| {
+                (
+                    r.get::<String, _>("priority"),
+                    r.get::<i64, _>("resolve_time_minutes"),
+                )
+            })
+            .collect();
+
+        let now = chrono::Utc::now().naive_utc();
+        let mut breach_count: i64 = 0;
+
+        for row in &active_rows {
+            let severity: String = row.get("severity");
+            let impact: String = row.get("impact");
+            let started_at: String = row.get("started_at");
+
+            let sev = Severity::from_str(&severity).unwrap_or(Severity::Medium);
+            let imp = Impact::from_str(&impact).unwrap_or(Impact::Medium);
+            let priority = calculate_priority(&sev, &imp).to_string();
+
+            if let Some(&resolve_target) = sla_map.get(&priority) {
+                if let Ok(started) =
+                    chrono::NaiveDateTime::parse_from_str(&started_at, "%Y-%m-%dT%H:%M:%SZ")
+                        .or_else(|_| chrono::NaiveDateTime::parse_from_str(&started_at, "%Y-%m-%dT%H:%M:%S%.fZ"))
+                {
+                    let elapsed_minutes = (now - started).num_minutes();
+                    if elapsed_minutes > resolve_target {
+                        breach_count += 1;
+                    }
+                }
+            }
+        }
+
+        breach_count
+    };
 
     // Recent audit entries (last 24 hours)
     let recent_audit: i64 = sqlx::query_scalar(

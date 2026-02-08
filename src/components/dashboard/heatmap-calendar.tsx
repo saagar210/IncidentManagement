@@ -20,10 +20,10 @@ interface HeatmapCalendarProps {
 
 const INTENSITY_CLASSES = [
   "bg-muted",
-  "bg-green-200 dark:bg-green-900",
-  "bg-green-400 dark:bg-green-700",
-  "bg-green-600 dark:bg-green-500",
-  "bg-green-800 dark:bg-green-300",
+  "bg-green-200 dark:bg-green-900/60",
+  "bg-green-300 dark:bg-green-700/80",
+  "bg-green-500 dark:bg-green-500/90",
+  "bg-green-700 dark:bg-green-400",
 ] as const;
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];

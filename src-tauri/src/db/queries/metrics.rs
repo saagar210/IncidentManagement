@@ -16,6 +16,7 @@ pub(crate) struct DateRange {
 /// in order using `?` placeholders.
 fn build_where_clause(range: &DateRange, filters: &MetricFilters) -> (String, Vec<String>) {
     let mut conditions = vec![
+        "i.deleted_at IS NULL".to_string(),
         "i.started_at >= ?".to_string(),
         "i.started_at <= ?".to_string(),
     ];
@@ -129,7 +130,7 @@ async fn incidents_by_category(db: &SqlitePool, range: &DateRange, filters: &Met
         .map_err(|e| AppError::Database(e.to_string()))?;
 
     Ok(rows.iter().map(|r| CategoryCount {
-        category: r.get::<Option<String>, _>("category").unwrap_or_default(),
+        category: r.get::<Option<String>, _>("category").unwrap_or_else(|| "Unknown".to_string()),
         count: r.get::<i64, _>("cnt"),
         previous_count: None,
     }).collect())
@@ -151,7 +152,7 @@ async fn incidents_by_service(db: &SqlitePool, range: &DateRange, filters: &Metr
         .map_err(|e| AppError::Database(e.to_string()))?;
 
     Ok(rows.iter().map(|r| CategoryCount {
-        category: r.get::<Option<String>, _>("category").unwrap_or_default(),
+        category: r.get::<Option<String>, _>("category").unwrap_or_else(|| "Unknown Service".to_string()),
         count: r.get::<i64, _>("cnt"),
         previous_count: None,
     }).collect())
@@ -159,8 +160,9 @@ async fn incidents_by_service(db: &SqlitePool, range: &DateRange, filters: &Metr
 
 async fn downtime_by_service(db: &SqlitePool, range: &DateRange, filters: &MetricFilters) -> AppResult<Vec<ServiceDowntime>> {
     let (wc, params) = build_where_clause(range, filters);
+    // Use COALESCE to include active incidents: for unresolved incidents, compute duration from started_at to now
     let sql = format!(
-        "SELECT i.service_id, s.name as service_name, COALESCE(SUM(i.duration_minutes), 0) as total_min FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE {} AND i.duration_minutes IS NOT NULL GROUP BY i.service_id, s.name ORDER BY total_min DESC",
+        "SELECT i.service_id, s.name as service_name, COALESCE(SUM(COALESCE(i.duration_minutes, CAST((julianday('now') - julianday(i.started_at)) * 1440 AS INTEGER))), 0) as total_min FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE {} GROUP BY i.service_id, s.name ORDER BY total_min DESC",
         wc
     );
     let mut query = sqlx::query(&sql);
@@ -176,7 +178,7 @@ async fn downtime_by_service(db: &SqlitePool, range: &DateRange, filters: &Metri
         let total: i64 = r.get("total_min");
         ServiceDowntime {
             service_id: r.get::<Option<String>, _>("service_id").unwrap_or_default(),
-            service_name: r.get::<Option<String>, _>("service_name").unwrap_or_default(),
+            service_name: r.get::<Option<String>, _>("service_name").unwrap_or_else(|| "Unknown Service".to_string()),
             total_minutes: total,
             formatted: format_minutes(total as f64),
         }

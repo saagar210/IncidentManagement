@@ -26,6 +26,7 @@ export function useIncidentByHour(
         startDate,
         endDate,
       }),
+    enabled: !!startDate && !!endDate,
     staleTime: 30000,
   });
 }
@@ -60,6 +61,7 @@ export function useUpdateDashboardConfig() {
     },
     onSuccess: (config) => {
       queryClient.setQueryData(["dashboard-config"], config);
+      queryClient.invalidateQueries({ queryKey: ["dashboard-config"] });
     },
   });
 }

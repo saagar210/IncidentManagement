@@ -322,6 +322,30 @@ impl UpdateIncidentRequest {
                 return Err(AppError::Validation("Affected users cannot be negative".into()));
             }
         }
+
+        // Date ordering validation (when both dates are provided)
+        if let (Some(ref started), Some(ref detected)) = (&self.started_at, &self.detected_at) {
+            if detected < started {
+                return Err(AppError::Validation(
+                    "Detected at must be on or after started at".into(),
+                ));
+            }
+        }
+        if let (Some(ref detected), Some(ref responded)) = (&self.detected_at, &self.responded_at) {
+            if responded < detected {
+                return Err(AppError::Validation(
+                    "Responded at must be on or after detected at".into(),
+                ));
+            }
+        }
+        if let (Some(ref started), Some(ref resolved)) = (&self.started_at, &self.resolved_at) {
+            if resolved < started {
+                return Err(AppError::Validation(
+                    "Resolved at must be on or after started at".into(),
+                ));
+            }
+        }
+
         Ok(())
     }
 }

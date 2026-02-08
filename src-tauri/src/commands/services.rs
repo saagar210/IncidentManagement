@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
-use crate::db::queries::services;
+use crate::db::queries::{audit, services};
 use crate::error::AppError;
 use crate::models::service::{CreateServiceRequest, Service, UpdateServiceRequest};
 
@@ -12,7 +12,17 @@ pub async fn create_service(
 ) -> Result<Service, AppError> {
     service.validate()?;
     let id = format!("svc-{}", uuid::Uuid::new_v4());
-    services::insert_service(&*db, &id, &service).await
+    let result = services::insert_service(&*db, &id, &service).await?;
+    let _ = audit::insert_audit_entry(
+        &*db,
+        "service",
+        &id,
+        "created",
+        &format!("Created service: {}", &service.name),
+        "",
+    )
+    .await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -22,7 +32,9 @@ pub async fn update_service(
     service: UpdateServiceRequest,
 ) -> Result<Service, AppError> {
     service.validate()?;
-    services::update_service(&*db, &id, &service).await
+    let result = services::update_service(&*db, &id, &service).await?;
+    let _ = audit::insert_audit_entry(&*db, "service", &id, "updated", "Updated service", "").await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -30,7 +42,9 @@ pub async fn delete_service(
     db: State<'_, SqlitePool>,
     id: String,
 ) -> Result<(), AppError> {
-    services::delete_service(&*db, &id).await
+    services::delete_service(&*db, &id).await?;
+    let _ = audit::insert_audit_entry(&*db, "service", &id, "deleted", "Deleted service", "").await;
+    Ok(())
 }
 
 #[tauri::command]

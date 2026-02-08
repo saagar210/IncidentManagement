@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useCustomFields, useIncidentCustomFields, useSetIncidentCustomFields } from "@/hooks/use-custom-fields";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -17,6 +17,13 @@ export function CustomFieldsForm({ incidentId, onSaveRef }: CustomFieldsFormProp
   const setValues = useSetIncidentCustomFields();
   const [localValues, setLocalValues] = useState<Record<string, string>>({});
 
+  // Keep a ref to the latest local values so save() always reads the current state
+  const localValuesRef = useRef(localValues);
+  localValuesRef.current = localValues;
+
+  const setValuesRef = useRef(setValues);
+  setValuesRef.current = setValues;
+
   // Initialize local values from existing data
   useEffect(() => {
     if (existingValues) {
@@ -28,19 +35,20 @@ export function CustomFieldsForm({ incidentId, onSaveRef }: CustomFieldsFormProp
     }
   }, [existingValues]);
 
+  // Stable save function that reads from refs — never goes stale
   const save = useCallback(async () => {
     if (!incidentId) return;
-    const values: CustomFieldValue[] = Object.entries(localValues)
+    const values: CustomFieldValue[] = Object.entries(localValuesRef.current)
       .filter(([_, v]) => v.trim().length > 0)
       .map(([fieldId, value]) => ({
         incident_id: incidentId,
         field_id: fieldId,
         value,
       }));
-    await setValues.mutateAsync({ incidentId, values });
-  }, [incidentId, localValues, setValues]);
+    await setValuesRef.current.mutateAsync({ incidentId, values });
+  }, [incidentId]);
 
-  // Register save function with parent
+  // Register save function with parent — only re-registers when incidentId changes
   useEffect(() => {
     onSaveRef?.(save);
     return () => onSaveRef?.(null);

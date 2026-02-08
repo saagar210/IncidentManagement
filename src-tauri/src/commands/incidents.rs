@@ -118,7 +118,17 @@ pub async fn create_action_item(
 ) -> Result<ActionItem, AppError> {
     item.validate()?;
     let id = format!("ai-{}", uuid::Uuid::new_v4());
-    incidents::insert_action_item(&*db, &id, &item).await
+    let result = incidents::insert_action_item(&*db, &id, &item).await?;
+    let _ = audit::insert_audit_entry(
+        &*db,
+        "action_item",
+        &id,
+        "created",
+        &format!("Created action item: {}", &item.title),
+        &format!("incident_id: {}", &item.incident_id),
+    )
+    .await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -128,7 +138,14 @@ pub async fn update_action_item(
     item: UpdateActionItemRequest,
 ) -> Result<ActionItem, AppError> {
     item.validate()?;
-    incidents::update_action_item(&*db, &id, &item).await
+    let result = incidents::update_action_item(&*db, &id, &item).await?;
+    let summary = if let Some(ref status) = item.status {
+        format!("Updated action item status to {}", status)
+    } else {
+        "Updated action item".to_string()
+    };
+    let _ = audit::insert_audit_entry(&*db, "action_item", &id, "updated", &summary, "").await;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -136,7 +153,9 @@ pub async fn delete_action_item(
     db: State<'_, SqlitePool>,
     id: String,
 ) -> Result<(), AppError> {
-    incidents::delete_action_item(&*db, &id).await
+    incidents::delete_action_item(&*db, &id).await?;
+    let _ = audit::insert_audit_entry(&*db, "action_item", &id, "deleted", "Deleted action item", "").await;
+    Ok(())
 }
 
 #[tauri::command]
@@ -218,7 +237,12 @@ pub async fn count_overdue_action_items(
     db: State<'_, SqlitePool>,
 ) -> Result<i64, AppError> {
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM action_items WHERE status != 'Done' AND due_date IS NOT NULL AND due_date < strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+        "SELECT COUNT(*) FROM action_items ai
+         JOIN incidents i ON ai.incident_id = i.id
+         WHERE ai.status != 'Done'
+         AND ai.due_date IS NOT NULL
+         AND ai.due_date < strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+         AND i.deleted_at IS NULL"
     )
     .fetch_one(&*db)
     .await

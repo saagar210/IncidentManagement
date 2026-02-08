@@ -41,6 +41,7 @@ export function useCreateIncident() {
       tauriInvoke<Incident>("create_incident", { incident }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }
@@ -60,6 +61,8 @@ export function useUpdateIncident() {
       queryClient.invalidateQueries({
         queryKey: ["incident", variables.id],
       });
+      queryClient.invalidateQueries({ queryKey: ["sla-status"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }
@@ -73,6 +76,7 @@ export function useDeleteIncident() {
       queryClient.invalidateQueries({ queryKey: ["incidents"] });
       queryClient.invalidateQueries({ queryKey: ["deleted-count"] });
       queryClient.invalidateQueries({ queryKey: ["deleted-incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }
@@ -110,6 +114,7 @@ export function useActionItems(incidentId?: string) {
       tauriInvoke<ActionItem[]>("list_action_items", {
         incidentId: incidentId ?? null,
       }),
+    staleTime: 10_000,
   });
 }
 
@@ -120,6 +125,7 @@ export function useCreateActionItem() {
       tauriInvoke<ActionItem>("create_action_item", { item }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }
@@ -131,6 +137,7 @@ export function useUpdateActionItem() {
       tauriInvoke<ActionItem>("update_action_item", { id, item }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }
@@ -142,6 +149,7 @@ export function useDeleteActionItem() {
       tauriInvoke<void>("delete_action_item", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
 }

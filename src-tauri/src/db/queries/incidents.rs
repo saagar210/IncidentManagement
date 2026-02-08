@@ -18,6 +18,25 @@ pub async fn insert_incident(
     id: &str,
     req: &CreateIncidentRequest,
 ) -> AppResult<Incident> {
+    // Validate recurrence_of references an existing incident
+    if let Some(ref rec_id) = req.recurrence_of {
+        if !rec_id.is_empty() {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM incidents WHERE id = ? AND deleted_at IS NULL"
+            )
+            .bind(rec_id)
+            .fetch_one(db)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+            if exists == 0 {
+                return Err(AppError::Validation(format!(
+                    "Referenced incident '{}' not found", rec_id
+                )));
+            }
+        }
+    }
+
     sqlx::query(
         "INSERT INTO incidents (id, title, service_id, severity, impact, status, started_at, detected_at, responded_at, resolved_at, root_cause, resolution, tickets_submitted, affected_users, is_recurring, recurrence_of, lessons_learned, action_items, external_ref, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
@@ -55,6 +74,25 @@ pub async fn update_incident(
 ) -> AppResult<Incident> {
     let existing = get_incident_by_id(db, id).await?;
 
+    // Validate recurrence_of references an existing incident
+    if let Some(ref rec_id) = req.recurrence_of {
+        if !rec_id.is_empty() && rec_id != id {
+            let exists: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM incidents WHERE id = ? AND deleted_at IS NULL"
+            )
+            .bind(rec_id)
+            .fetch_one(db)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+            if exists == 0 {
+                return Err(AppError::Validation(format!(
+                    "Referenced incident '{}' not found", rec_id
+                )));
+            }
+        }
+    }
+
     let title = req.title.as_ref().unwrap_or(&existing.title);
     let service_id = req.service_id.as_ref().unwrap_or(&existing.service_id);
     let severity = req.severity.as_ref().unwrap_or(&existing.severity);
@@ -78,16 +116,51 @@ pub async fn update_incident(
     } else {
         &existing.responded_at
     };
+
+    // Auto-set resolved_at when status changes to "Resolved" and it's not already set
+    let auto_resolved_at = if status == "Resolved"
+        && existing.resolved_at.is_none()
+        && req.resolved_at.is_none()
+    {
+        Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    } else {
+        None
+    };
+
     let resolved_at = if req.resolved_at.is_some() {
         &req.resolved_at
+    } else if auto_resolved_at.is_some() {
+        &auto_resolved_at
     } else {
         &existing.resolved_at
     };
+
     let recurrence_of = if req.recurrence_of.is_some() {
         &req.recurrence_of
     } else {
         &existing.recurrence_of
     };
+
+    // Validate date ordering using the merged (final) values
+    if detected_at < started_at {
+        return Err(AppError::Validation(
+            "Detected at must be on or after started at".into(),
+        ));
+    }
+    if let Some(ref resp) = responded_at {
+        if resp.as_str() < detected_at.as_str() {
+            return Err(AppError::Validation(
+                "Responded at must be on or after detected at".into(),
+            ));
+        }
+    }
+    if let Some(ref res) = resolved_at {
+        if res.as_str() < started_at.as_str() {
+            return Err(AppError::Validation(
+                "Resolved at must be on or after started at".into(),
+            ));
+        }
+    }
 
     sqlx::query(
         "UPDATE incidents SET title=?, service_id=?, severity=?, impact=?, status=?, started_at=?, detected_at=?, responded_at=?, resolved_at=?, root_cause=?, resolution=?, tickets_submitted=?, affected_users=?, is_recurring=?, recurrence_of=?, lessons_learned=?, action_items=?, external_ref=?, notes=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
@@ -161,18 +234,74 @@ pub async fn restore_incident(db: &SqlitePool, id: &str) -> AppResult<Incident> 
 }
 
 pub async fn permanent_delete_incident(db: &SqlitePool, id: &str) -> AppResult<()> {
-    let result = sqlx::query("DELETE FROM incidents WHERE id = ? AND deleted_at IS NOT NULL")
-        .bind(id)
-        .execute(db)
+    // Verify it's in trash first
+    let exists: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM incidents WHERE id = ? AND deleted_at IS NOT NULL"
+    )
+    .bind(id)
+    .fetch_one(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    if exists == 0 {
+        return Err(AppError::NotFound(format!("Deleted incident '{}' not found", id)));
+    }
+
+    // Use a transaction to clean up related data
+    let mut tx = db.begin()
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
 
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound(format!("Deleted incident '{}' not found", id)));
-    }
+    // Delete action items for this incident
+    sqlx::query("DELETE FROM action_items WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete audit entries for this incident
+    sqlx::query("DELETE FROM audit_entries WHERE entity_type = 'incident' AND entity_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete tags for this incident
+    sqlx::query("DELETE FROM incident_tags WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete custom field values for this incident
+    sqlx::query("DELETE FROM custom_field_values WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete attachments for this incident
+    sqlx::query("DELETE FROM attachments WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Finally delete the incident itself
+    sqlx::query("DELETE FROM incidents WHERE id = ? AND deleted_at IS NOT NULL")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
     Ok(())
 }
 
+#[allow(dead_code)]
 pub async fn purge_old_deleted(db: &SqlitePool, days: i64) -> AppResult<i64> {
     let result = sqlx::query(
         "DELETE FROM incidents WHERE deleted_at IS NOT NULL AND julianday('now') - julianday(deleted_at) > ?"
@@ -475,7 +604,7 @@ fn parse_incident(row: &sqlx::sqlite::SqliteRow) -> Incident {
         id: row.get("id"),
         title: row.get("title"),
         service_id: row.get("service_id"),
-        service_name: row.get::<Option<String>, _>("service_name").unwrap_or_default(),
+        service_name: row.get::<Option<String>, _>("service_name").unwrap_or_else(|| "Unknown Service".to_string()),
         severity,
         impact,
         priority,
