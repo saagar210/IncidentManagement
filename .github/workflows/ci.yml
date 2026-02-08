@@ -69,3 +69,16 @@ jobs:
 
       - name: Run backend tests
         run: cargo test --lib
+
+  codacy:
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' && secrets.CODACY_PROJECT_TOKEN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Codacy analysis
+        uses: codacy/codacy-analysis-cli-action@v4
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          upload: true

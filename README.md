@@ -1,5 +1,9 @@
 # Incident Management
 
+[![CI](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml)
+[![Bundle Budget](https://img.shields.io/badge/bundle%20budget-enforced-brightgreen)](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml)
+[![Codacy](https://img.shields.io/badge/codacy-project-blue?logo=codacy)](https://app.codacy.com/gh/saagar210/IncidentManagement)
+
 A local-first macOS desktop app for tracking IT incidents, running blameless post-mortems, detecting trends with AI, and generating polished DOCX/PDF reports for quarterly and annual leadership reviews.
 
 Built with **Tauri 2** + **React 19** + **Rust** + **SQLite** + **Ollama AI**.
