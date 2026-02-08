@@ -94,4 +94,7 @@ jobs:
         uses: codacy/codacy-analysis-cli-action@v4
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          # Docker-based tools (e.g. Trivy/SBOM) have produced non-parseable output for the
+          # Codacy CLI in this repo, causing the job to fail. Disable them so upload succeeds.
+          run-docker-tools: false
           upload: true
