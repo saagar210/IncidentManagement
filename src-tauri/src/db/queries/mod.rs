@@ -1,10 +1,17 @@
 pub mod audit;
+pub mod checklists;
 pub mod custom_fields;
 pub mod dashboard;
 pub mod incidents;
 pub mod metrics;
 pub mod report_history;
+pub mod postmortems;
+pub mod roles;
+pub mod service_dependencies;
+pub mod saved_filters;
 pub mod services;
 pub mod settings;
+pub mod shift_handoffs;
 pub mod sla;
+pub mod stakeholder_updates;
 pub mod tags;

@@ -69,7 +69,7 @@ const REQUIRED_FIELDS: &[&str] = &[
 
 const VALID_SEVERITIES: &[&str] = &["Critical", "High", "Medium", "Low"];
 const VALID_IMPACTS: &[&str] = &["Critical", "High", "Medium", "Low"];
-const VALID_STATUSES: &[&str] = &["Active", "Monitoring", "Resolved", "Post-Mortem"];
+const VALID_STATUSES: &[&str] = &["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"];
 
 /// Apply the column mapping to parsed CSV rows and validate each row.
 pub fn apply_mapping(

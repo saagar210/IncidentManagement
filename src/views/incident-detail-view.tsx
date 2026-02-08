@@ -24,6 +24,17 @@ import { CustomFieldsForm } from "@/components/incidents/custom-fields-form";
 import { ActionItemsPanel } from "@/components/incidents/ActionItemsPanel";
 import { SlaStatusBadge } from "@/components/incidents/SlaStatusBadge";
 import { ActivityFeed } from "@/components/incidents/ActivityFeed";
+import { RoleAssignmentPanel } from "@/components/incidents/role-assignment-panel";
+import { ChecklistPanel } from "@/components/incidents/checklist-panel";
+import { StatusTransitionBar } from "@/components/incidents/status-transition-bar";
+import { IncidentTimelineStream } from "@/components/incidents/incident-timeline-stream";
+import { ContributingFactorsForm } from "@/components/incidents/contributing-factors-form";
+import { PostmortemEditor } from "@/components/incidents/postmortem-editor";
+import { AiSummaryPanel } from "@/components/ai/ai-summary-panel";
+import { SimilarIncidentsPanel } from "@/components/ai/similar-incidents-panel";
+import { RootCauseSuggestions } from "@/components/ai/root-cause-suggestions";
+import { DedupWarning } from "@/components/ai/dedup-warning";
+import { StakeholderUpdatePanel } from "@/components/incidents/stakeholder-update-panel";
 import { toast } from "@/components/ui/use-toast";
 import {
   SEVERITY_LEVELS,
@@ -41,6 +52,9 @@ interface IncidentFormData {
   status: string;
   started_at: string;
   detected_at: string;
+  acknowledged_at: string;
+  first_response_at: string;
+  mitigation_started_at: string;
   responded_at: string;
   resolved_at: string;
   tickets_submitted: number;
@@ -147,6 +161,9 @@ export function IncidentDetailView() {
       status: "Active",
       started_at: "",
       detected_at: "",
+      acknowledged_at: "",
+      first_response_at: "",
+      mitigation_started_at: "",
       responded_at: "",
       resolved_at: "",
       tickets_submitted: 0,
@@ -172,6 +189,9 @@ export function IncidentDetailView() {
         status: incident.status,
         started_at: toLocalDatetime(incident.started_at),
         detected_at: toLocalDatetime(incident.detected_at),
+        acknowledged_at: toLocalDatetime(incident.acknowledged_at),
+        first_response_at: toLocalDatetime(incident.first_response_at),
+        mitigation_started_at: toLocalDatetime(incident.mitigation_started_at),
         responded_at: toLocalDatetime(incident.responded_at),
         resolved_at: toLocalDatetime(incident.resolved_at),
         tickets_submitted: incident.tickets_submitted ?? 0,
@@ -231,6 +251,9 @@ export function IncidentDetailView() {
       status: data.status,
       started_at: toISOString(data.started_at) ?? new Date().toISOString(),
       detected_at: toISOString(data.detected_at) ?? new Date().toISOString(),
+      acknowledged_at: toISOString(data.acknowledged_at),
+      first_response_at: toISOString(data.first_response_at),
+      mitigation_started_at: toISOString(data.mitigation_started_at),
       responded_at: toISOString(data.responded_at),
       resolved_at: toISOString(data.resolved_at),
       tickets_submitted: data.tickets_submitted,
@@ -343,6 +366,7 @@ export function IncidentDetailView() {
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
             {isEditMode && <TabsTrigger value="actions">Actions & Extras</TabsTrigger>}
+            {isEditMode && <TabsTrigger value="postmortem">Post-Mortem</TabsTrigger>}
             {isEditMode && <TabsTrigger value="activity">Activity</TabsTrigger>}
           </TabsList>
 
@@ -396,6 +420,14 @@ export function IncidentDetailView() {
               </CardContent>
             </Card>
 
+            {/* Dedup Warning (create mode only) */}
+            {!isEditMode && (
+              <DedupWarning
+                title={watch("title")}
+                serviceId={watch("service_id")}
+              />
+            )}
+
             {/* Classification */}
             <Card>
               <CardHeader>
@@ -441,6 +473,18 @@ export function IncidentDetailView() {
               </CardContent>
             </Card>
 
+            {/* Status Transition Bar (edit mode only) */}
+            {isEditMode && incident && (
+              <StatusTransitionBar
+                currentStatus={watch("status")}
+                reopenCount={incident.reopen_count ?? 0}
+                disabled={isSubmitting}
+                onTransition={(newStatus) => {
+                  setValue("status", newStatus, { shouldDirty: true });
+                }}
+              />
+            )}
+
             {/* SLA Status (existing incidents only) */}
             {id && <SlaStatusBadge incidentId={id} />}
 
@@ -464,6 +508,30 @@ export function IncidentDetailView() {
                     id="detected_at"
                     type="datetime-local"
                     {...register("detected_at", { required: true })}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="acknowledged_at">Acknowledged At</Label>
+                  <Input
+                    id="acknowledged_at"
+                    type="datetime-local"
+                    {...register("acknowledged_at")}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="first_response_at">First Response At</Label>
+                  <Input
+                    id="first_response_at"
+                    type="datetime-local"
+                    {...register("first_response_at")}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="mitigation_started_at">Mitigation Started</Label>
+                  <Input
+                    id="mitigation_started_at"
+                    type="datetime-local"
+                    {...register("mitigation_started_at")}
                   />
                 </div>
                 <div>
@@ -591,9 +659,20 @@ export function IncidentDetailView() {
             </Card>
           </TabsContent>
 
-          {/* Tab 3: Actions & Extras — Action Items, Custom Fields, Attachments (edit only) */}
+          {/* Tab 3: Actions & Extras — Roles, Checklists, Action Items, Custom Fields, Attachments (edit only) */}
           {isEditMode && id && (
             <TabsContent value="actions" className="space-y-6">
+              <RoleAssignmentPanel incidentId={id} />
+              <ChecklistPanel incidentId={id} />
+              <StakeholderUpdatePanel
+                incidentId={id}
+                title={watch("title")}
+                severity={watch("severity")}
+                status={watch("status")}
+                service={services?.find((s) => s.id === watch("service_id"))?.name ?? ""}
+                impact={watch("impact")}
+                notes={watch("notes")}
+              />
               <ActionItemsPanel incidentId={id} />
               <CustomFieldsForm
                 incidentId={id}
@@ -603,9 +682,53 @@ export function IncidentDetailView() {
             </TabsContent>
           )}
 
-          {/* Tab 4: Activity — Audit Log (edit only) */}
+          {/* Tab: Post-Mortem — Contributing Factors, PM Editor, AI (edit only) */}
+          {isEditMode && id && (
+            <TabsContent value="postmortem" className="space-y-6">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <div className="space-y-6 lg:col-span-2">
+                  <ContributingFactorsForm incidentId={id} />
+                  <PostmortemEditor
+                    incidentId={id}
+                    title={watch("title")}
+                    severity={watch("severity")}
+                    service={services?.find((s) => s.id === watch("service_id"))?.name ?? ""}
+                    rootCause={watch("root_cause")}
+                    resolution={watch("resolution")}
+                    lessons={watch("lessons_learned")}
+                  />
+                </div>
+                <div className="space-y-4">
+                  <AiSummaryPanel
+                    title={watch("title")}
+                    severity={watch("severity")}
+                    status={watch("status")}
+                    service={services?.find((s) => s.id === watch("service_id"))?.name ?? ""}
+                    impact={watch("impact")}
+                    rootCause={watch("root_cause")}
+                    resolution={watch("resolution")}
+                    notes={watch("notes")}
+                  />
+                  <RootCauseSuggestions
+                    title={watch("title")}
+                    severity={watch("severity")}
+                    service={services?.find((s) => s.id === watch("service_id"))?.name ?? ""}
+                    symptoms={watch("root_cause")}
+                    timeline={watch("notes")}
+                  />
+                  <SimilarIncidentsPanel
+                    query={watch("title")}
+                    excludeId={id}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+          )}
+
+          {/* Tab: Activity — Audit Log (edit only) */}
           {isEditMode && id && (
             <TabsContent value="activity" className="space-y-6">
+              <IncidentTimelineStream incidentId={id} />
               <Card>
                 <CardHeader>
                   <CardTitle className="text-base">Activity Log</CardTitle>

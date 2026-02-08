@@ -3,7 +3,7 @@ use sqlx::{Row, SqlitePool};
 use crate::error::{AppError, AppResult};
 use crate::models::incident::{
     ActionItem, CreateActionItemRequest, CreateIncidentRequest, Incident, IncidentFilters,
-    UpdateActionItemRequest, UpdateIncidentRequest,
+    UpdateActionItemRequest, UpdateIncidentRequest, allowed_transitions, is_reopen,
 };
 use crate::models::priority::{Impact, Severity, calculate_priority};
 
@@ -38,7 +38,7 @@ pub async fn insert_incident(
     }
 
     sqlx::query(
-        "INSERT INTO incidents (id, title, service_id, severity, impact, status, started_at, detected_at, responded_at, resolved_at, root_cause, resolution, tickets_submitted, affected_users, is_recurring, recurrence_of, lessons_learned, action_items, external_ref, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO incidents (id, title, service_id, severity, impact, status, started_at, detected_at, acknowledged_at, first_response_at, mitigation_started_at, responded_at, resolved_at, root_cause, resolution, tickets_submitted, affected_users, is_recurring, recurrence_of, lessons_learned, action_items, external_ref, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(&req.title)
@@ -48,6 +48,9 @@ pub async fn insert_incident(
     .bind(&req.status)
     .bind(&req.started_at)
     .bind(&req.detected_at)
+    .bind(&req.acknowledged_at)
+    .bind(&req.first_response_at)
+    .bind(&req.mitigation_started_at)
     .bind(&req.responded_at)
     .bind(&req.resolved_at)
     .bind(&req.root_cause)
@@ -97,7 +100,7 @@ pub async fn update_incident(
     let service_id = req.service_id.as_ref().unwrap_or(&existing.service_id);
     let severity = req.severity.as_ref().unwrap_or(&existing.severity);
     let impact = req.impact.as_ref().unwrap_or(&existing.impact);
-    let status = req.status.as_ref().unwrap_or(&existing.status);
+    let new_status = req.status.as_ref().unwrap_or(&existing.status);
     let started_at = req.started_at.as_ref().unwrap_or(&existing.started_at);
     let detected_at = req.detected_at.as_ref().unwrap_or(&existing.detected_at);
     let root_cause = req.root_cause.as_ref().unwrap_or(&existing.root_cause);
@@ -110,35 +113,73 @@ pub async fn update_incident(
     let ext_ref = req.external_ref.as_ref().unwrap_or(&existing.external_ref);
     let notes = req.notes.as_ref().unwrap_or(&existing.notes);
 
-    // Handle optional fields -- use request value if Some, else keep existing
-    let responded_at = if req.responded_at.is_some() {
-        &req.responded_at
+    // State transition validation
+    let status_changed = new_status != &existing.status;
+    if status_changed {
+        let allowed = allowed_transitions(&existing.status);
+        if !allowed.contains(&new_status.as_str()) {
+            return Err(AppError::Validation(format!(
+                "Cannot transition from '{}' to '{}'. Allowed: {}",
+                existing.status, new_status, allowed.join(", ")
+            )));
+        }
+    }
+
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+
+    // Handle reopen: increment reopen_count and set reopened_at
+    let reopen_count = if status_changed && is_reopen(&existing.status, new_status) {
+        existing.reopen_count + 1
     } else {
-        &existing.responded_at
+        existing.reopen_count
+    };
+    let reopened_at = if status_changed && is_reopen(&existing.status, new_status) {
+        Some(now.clone())
+    } else {
+        existing.reopened_at.clone()
+    };
+
+    // Auto-set acknowledged_at when transitioning to Acknowledged
+    let acknowledged_at = if req.acknowledged_at.is_some() {
+        req.acknowledged_at.clone()
+    } else if status_changed && new_status == "Acknowledged" && existing.acknowledged_at.is_none() {
+        Some(now.clone())
+    } else {
+        existing.acknowledged_at.clone()
+    };
+
+    // Handle optional timestamp fields
+    let first_response_at = if req.first_response_at.is_some() {
+        req.first_response_at.clone()
+    } else {
+        existing.first_response_at.clone()
+    };
+
+    let mitigation_started_at = if req.mitigation_started_at.is_some() {
+        req.mitigation_started_at.clone()
+    } else {
+        existing.mitigation_started_at.clone()
+    };
+
+    let responded_at = if req.responded_at.is_some() {
+        req.responded_at.clone()
+    } else {
+        existing.responded_at.clone()
     };
 
     // Auto-set resolved_at when status changes to "Resolved" and it's not already set
-    let auto_resolved_at = if status == "Resolved"
-        && existing.resolved_at.is_none()
-        && req.resolved_at.is_none()
-    {
-        Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
-    } else {
-        None
-    };
-
     let resolved_at = if req.resolved_at.is_some() {
-        &req.resolved_at
-    } else if auto_resolved_at.is_some() {
-        &auto_resolved_at
+        req.resolved_at.clone()
+    } else if status_changed && new_status == "Resolved" && existing.resolved_at.is_none() {
+        Some(now.clone())
     } else {
-        &existing.resolved_at
+        existing.resolved_at.clone()
     };
 
     let recurrence_of = if req.recurrence_of.is_some() {
-        &req.recurrence_of
+        req.recurrence_of.clone()
     } else {
-        &existing.recurrence_of
+        existing.recurrence_of.clone()
     };
 
     // Validate date ordering using the merged (final) values
@@ -163,23 +204,28 @@ pub async fn update_incident(
     }
 
     sqlx::query(
-        "UPDATE incidents SET title=?, service_id=?, severity=?, impact=?, status=?, started_at=?, detected_at=?, responded_at=?, resolved_at=?, root_cause=?, resolution=?, tickets_submitted=?, affected_users=?, is_recurring=?, recurrence_of=?, lessons_learned=?, action_items=?, external_ref=?, notes=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+        "UPDATE incidents SET title=?, service_id=?, severity=?, impact=?, status=?, started_at=?, detected_at=?, acknowledged_at=?, first_response_at=?, mitigation_started_at=?, responded_at=?, resolved_at=?, reopened_at=?, reopen_count=?, root_cause=?, resolution=?, tickets_submitted=?, affected_users=?, is_recurring=?, recurrence_of=?, lessons_learned=?, action_items=?, external_ref=?, notes=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
     )
     .bind(title)
     .bind(service_id)
     .bind(severity)
     .bind(impact)
-    .bind(status)
+    .bind(new_status)
     .bind(started_at)
     .bind(detected_at)
-    .bind(responded_at)
-    .bind(resolved_at)
+    .bind(&acknowledged_at)
+    .bind(&first_response_at)
+    .bind(&mitigation_started_at)
+    .bind(&responded_at)
+    .bind(&resolved_at)
+    .bind(&reopened_at)
+    .bind(reopen_count)
     .bind(root_cause)
     .bind(resolution)
     .bind(tickets)
     .bind(affected)
     .bind(recurring)
-    .bind(recurrence_of)
+    .bind(&recurrence_of)
     .bind(lessons)
     .bind(actions)
     .bind(ext_ref)
@@ -282,6 +328,20 @@ pub async fn permanent_delete_incident(db: &SqlitePool, id: &str) -> AppResult<(
 
     // Delete attachments for this incident
     sqlx::query("DELETE FROM attachments WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete incident roles
+    sqlx::query("DELETE FROM incident_roles WHERE incident_id = ?")
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Delete incident checklists (items cascade via FK)
+    sqlx::query("DELETE FROM incident_checklists WHERE incident_id = ?")
         .bind(id)
         .execute(&mut *tx)
         .await
@@ -412,21 +472,48 @@ pub async fn list_incidents(
 }
 
 pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Incident>> {
-    // Escape LIKE wildcard characters so they match literally
-    let escaped = query
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_");
-    let pattern = format!("%{}%", escaped);
-    let rows = sqlx::query(
-        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL AND (i.title LIKE ?1 ESCAPE '\\' OR i.root_cause LIKE ?1 ESCAPE '\\' OR i.resolution LIKE ?1 ESCAPE '\\' OR i.notes LIKE ?1 ESCAPE '\\' OR i.external_ref LIKE ?1 ESCAPE '\\') ORDER BY i.started_at DESC"
-    )
-    .bind(&pattern)
-    .fetch_all(db)
-    .await
-    .map_err(|e| AppError::Database(e.to_string()))?;
+    // Use FTS5 for full-text search when available, fall back to LIKE
+    // Escape FTS5 special characters and build a prefix query
+    let fts_query = query
+        .replace('"', "\"\"")
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{}\"*", w))
+        .collect::<Vec<_>>()
+        .join(" ");
 
-    Ok(rows.iter().map(parse_incident).collect())
+    if fts_query.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Try FTS5 search first
+    let fts_result = sqlx::query(
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL AND i.rowid IN (SELECT rowid FROM incidents_fts WHERE incidents_fts MATCH ?1) ORDER BY i.started_at DESC"
+    )
+    .bind(&fts_query)
+    .fetch_all(db)
+    .await;
+
+    match fts_result {
+        Ok(rows) => Ok(rows.iter().map(parse_incident).collect()),
+        Err(_) => {
+            // Fallback to LIKE search if FTS5 table doesn't exist yet
+            let escaped = query
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let pattern = format!("%{}%", escaped);
+            let rows = sqlx::query(
+                "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL AND (i.title LIKE ?1 ESCAPE '\\' OR i.root_cause LIKE ?1 ESCAPE '\\' OR i.resolution LIKE ?1 ESCAPE '\\' OR i.notes LIKE ?1 ESCAPE '\\' OR i.external_ref LIKE ?1 ESCAPE '\\') ORDER BY i.started_at DESC"
+            )
+            .bind(&pattern)
+            .fetch_all(db)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+            Ok(rows.iter().map(parse_incident).collect())
+        }
+    }
 }
 
 pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -> AppResult<()> {
@@ -434,7 +521,7 @@ pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -
         return Ok(());
     }
     // Validate status before beginning transaction
-    const VALID_STATUSES: &[&str] = &["Active", "Monitoring", "Resolved", "Post-Mortem"];
+    const VALID_STATUSES: &[&str] = &["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"];
     if !VALID_STATUSES.contains(&status) {
         return Err(AppError::Validation(format!(
             "Invalid status '{}'. Must be one of: {}",
@@ -611,8 +698,13 @@ fn parse_incident(row: &sqlx::sqlite::SqliteRow) -> Incident {
         status: row.get("status"),
         started_at: row.get("started_at"),
         detected_at: row.get("detected_at"),
+        acknowledged_at: row.get("acknowledged_at"),
+        first_response_at: row.get("first_response_at"),
+        mitigation_started_at: row.get("mitigation_started_at"),
         responded_at: row.get("responded_at"),
         resolved_at: row.get("resolved_at"),
+        reopened_at: row.get("reopened_at"),
+        reopen_count: row.get::<Option<i64>, _>("reopen_count").unwrap_or(0),
         duration_minutes: row.get("duration_minutes"),
         root_cause: row.get::<Option<String>, _>("root_cause").unwrap_or_default(),
         resolution: row.get::<Option<String>, _>("resolution").unwrap_or_default(),

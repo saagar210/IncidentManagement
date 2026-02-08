@@ -132,3 +132,29 @@ pub struct HourCount {
     pub hour: i32,
     pub count: i64,
 }
+
+/// Backlog aging: how many open incidents in each age bucket
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BacklogAgingBucket {
+    pub label: String,
+    pub count: i64,
+}
+
+/// Service reliability scorecard
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceReliabilityScore {
+    pub service_id: String,
+    pub service_name: String,
+    pub incident_count: i64,
+    pub mttr_minutes: f64,
+    pub mttr_formatted: String,
+    pub sla_compliance_pct: f64,
+}
+
+/// Escalation funnel: severity distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EscalationFunnelEntry {
+    pub severity: String,
+    pub count: i64,
+    pub percentage: f64,
+}

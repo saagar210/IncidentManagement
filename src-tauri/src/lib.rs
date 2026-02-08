@@ -1,3 +1,4 @@
+pub mod ai;
 mod commands;
 mod db;
 mod error;
@@ -21,6 +22,15 @@ pub fn run() {
             let pool = tauri::async_runtime::block_on(db::init_db(app_data_dir))
                 .expect("Failed to initialize database");
             app.manage(pool);
+
+            // Initialize Ollama AI state with health check
+            let ollama = ai::OllamaState::default();
+            let ollama_clone = ollama.clone();
+            tauri::async_runtime::spawn(async move {
+                ai::client::update_health(&ollama_clone).await;
+            });
+            app.manage(ollama);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -42,8 +52,13 @@ pub fn run() {
             commands::services::create_service,
             commands::services::update_service,
             commands::services::delete_service,
+            commands::services::get_service,
             commands::services::list_services,
             commands::services::list_active_services,
+            commands::services::add_service_dependency,
+            commands::services::remove_service_dependency,
+            commands::services::list_service_dependencies,
+            commands::services::list_service_dependents,
             // Settings
             commands::settings::get_quarter_configs,
             commands::settings::upsert_quarter_config,
@@ -77,6 +92,14 @@ pub fn run() {
             commands::metrics::get_dashboard_data,
             commands::metrics::get_incident_heatmap,
             commands::metrics::get_incident_by_hour,
+            commands::metrics::get_backlog_aging,
+            commands::metrics::get_service_reliability,
+            commands::metrics::get_escalation_funnel,
+            // Saved Filters
+            commands::saved_filters::list_saved_filters,
+            commands::saved_filters::create_saved_filter,
+            commands::saved_filters::update_saved_filter,
+            commands::saved_filters::delete_saved_filter,
             // Reports
             commands::reports::generate_report,
             commands::reports::save_report,
@@ -84,6 +107,19 @@ pub fn run() {
             commands::reports::list_report_history,
             commands::reports::delete_report_history_entry,
             commands::reports::generate_narrative,
+            // Roles
+            commands::roles::assign_role,
+            commands::roles::unassign_role,
+            commands::roles::list_incident_roles,
+            // Checklists
+            commands::checklists::create_checklist_template,
+            commands::checklists::update_checklist_template,
+            commands::checklists::delete_checklist_template,
+            commands::checklists::list_checklist_templates,
+            commands::checklists::create_incident_checklist,
+            commands::checklists::list_incident_checklists,
+            commands::checklists::delete_incident_checklist,
+            commands::checklists::toggle_checklist_item,
             // Audit & Notifications
             commands::audit::list_audit_entries,
             commands::audit::get_notification_summary,
@@ -100,6 +136,40 @@ pub fn run() {
             commands::import::list_import_templates,
             commands::import::save_import_template,
             commands::import::delete_import_template,
+            // Post-mortems
+            commands::postmortems::list_contributing_factors,
+            commands::postmortems::create_contributing_factor,
+            commands::postmortems::delete_contributing_factor,
+            commands::postmortems::list_postmortem_templates,
+            commands::postmortems::get_postmortem_by_incident,
+            commands::postmortems::create_postmortem,
+            commands::postmortems::update_postmortem,
+            commands::postmortems::delete_postmortem,
+            commands::postmortems::list_postmortems,
+            // AI
+            commands::ai::get_ai_status,
+            commands::ai::check_ai_health,
+            commands::ai::ai_summarize_incident,
+            commands::ai::ai_stakeholder_update,
+            commands::ai::ai_postmortem_draft,
+            commands::ai::find_similar_incidents,
+            commands::ai::ai_suggest_root_causes,
+            commands::ai::check_duplicate_incidents,
+            commands::ai::detect_service_trends,
+            // Stakeholder Updates
+            commands::stakeholder_updates::list_stakeholder_updates,
+            commands::stakeholder_updates::create_stakeholder_update,
+            commands::stakeholder_updates::delete_stakeholder_update,
+            // Shift Handoffs
+            commands::shift_handoffs::list_shift_handoffs,
+            commands::shift_handoffs::create_shift_handoff,
+            commands::shift_handoffs::delete_shift_handoff,
+            // Export
+            commands::export::export_incidents_csv,
+            commands::export::export_incidents_json,
+            // Backup
+            commands::backup::create_backup,
+            commands::backup::list_backups,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

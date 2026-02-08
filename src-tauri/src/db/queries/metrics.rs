@@ -2,13 +2,14 @@ use sqlx::{Row, SqlitePool};
 
 use crate::error::{AppError, AppResult};
 use crate::models::metrics::{
-    CategoryCount, DashboardData, MetricFilters, MetricResult, QuarterlyTrends, ServiceDowntime,
+    BacklogAgingBucket, CategoryCount, DashboardData, EscalationFunnelEntry, MetricFilters,
+    MetricResult, QuarterlyTrends, ServiceDowntime, ServiceReliabilityScore,
     calculate_trend, format_decimal, format_minutes, format_percentage,
 };
 
-pub(crate) struct DateRange {
-    start: String,
-    end: String,
+pub struct DateRange {
+    pub start: String,
+    pub end: String,
 }
 
 /// Build a WHERE clause and a vec of bind values for dynamic metric queries.
@@ -79,8 +80,10 @@ async fn calc_mttr(db: &SqlitePool, range: &DateRange, filters: &MetricFilters) 
 
 async fn calc_mtta(db: &SqlitePool, range: &DateRange, filters: &MetricFilters) -> AppResult<f64> {
     let (wc, params) = build_where_clause(range, filters);
+    // MTTA = Mean Time to Acknowledge (detected_at → acknowledged_at)
+    // Falls back to responded_at if acknowledged_at is not set
     let sql = format!(
-        "SELECT AVG(CAST((julianday(i.responded_at) - julianday(i.detected_at)) * 1440 AS REAL)) FROM incidents i WHERE {} AND i.responded_at IS NOT NULL",
+        "SELECT AVG(CAST((julianday(COALESCE(i.acknowledged_at, i.responded_at)) - julianday(i.detected_at)) * 1440 AS REAL)) FROM incidents i WHERE {} AND (i.acknowledged_at IS NOT NULL OR i.responded_at IS NOT NULL)",
         wc
     );
     query_scalar_f64(db, &sql, &params).await
@@ -312,6 +315,178 @@ async fn build_quarterly_trends(db: &SqlitePool, filters: &MetricFilters) -> App
         recurrence_rate: recurrence_vals,
         avg_tickets: ticket_vals,
     })
+}
+
+/// Backlog aging: open incidents grouped by how long they've been open
+pub async fn get_backlog_aging(db: &SqlitePool) -> AppResult<Vec<BacklogAgingBucket>> {
+    let rows = sqlx::query(
+        "SELECT
+            CASE
+                WHEN age_days <= 1 THEN '0-1 day'
+                WHEN age_days <= 3 THEN '1-3 days'
+                WHEN age_days <= 7 THEN '3-7 days'
+                WHEN age_days <= 14 THEN '7-14 days'
+                ELSE '14+ days'
+            END as bucket,
+            COUNT(*) as cnt
+        FROM (
+            SELECT CAST((julianday('now') - julianday(started_at)) AS REAL) as age_days
+            FROM incidents
+            WHERE deleted_at IS NULL
+              AND status NOT IN ('Resolved', 'Post-Mortem')
+        )
+        GROUP BY bucket
+        ORDER BY CASE bucket
+            WHEN '0-1 day' THEN 1
+            WHEN '1-3 days' THEN 2
+            WHEN '3-7 days' THEN 3
+            WHEN '7-14 days' THEN 4
+            ELSE 5
+        END"
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    // Ensure all buckets exist even if empty
+    let bucket_labels = ["0-1 day", "1-3 days", "3-7 days", "7-14 days", "14+ days"];
+    let mut result: Vec<BacklogAgingBucket> = bucket_labels
+        .iter()
+        .map(|label| BacklogAgingBucket {
+            label: label.to_string(),
+            count: 0,
+        })
+        .collect();
+
+    for row in &rows {
+        let bucket: String = row.get("bucket");
+        let cnt: i64 = row.get("cnt");
+        if let Some(entry) = result.iter_mut().find(|b| b.label == bucket) {
+            entry.count = cnt;
+        }
+    }
+
+    Ok(result)
+}
+
+/// Service reliability scorecard: per-service health metrics
+pub async fn get_service_reliability(
+    db: &SqlitePool,
+    range: &DateRange,
+) -> AppResult<Vec<ServiceReliabilityScore>> {
+    let rows = sqlx::query(
+        "SELECT
+            i.service_id,
+            s.name as service_name,
+            COUNT(*) as incident_count,
+            AVG(COALESCE(i.duration_minutes, 0)) as avg_mttr
+        FROM incidents i
+        LEFT JOIN services s ON i.service_id = s.id
+        WHERE i.deleted_at IS NULL
+          AND i.started_at >= ?
+          AND i.started_at <= ?
+        GROUP BY i.service_id, s.name
+        ORDER BY incident_count DESC"
+    )
+    .bind(&range.start)
+    .bind(&range.end)
+    .fetch_all(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let mut results = Vec::new();
+    for row in &rows {
+        let service_id: String = row.get::<Option<String>, _>("service_id").unwrap_or_default();
+        let service_name: String = row.get::<Option<String>, _>("service_name").unwrap_or_else(|| "Unknown".to_string());
+        let incident_count: i64 = row.get("incident_count");
+        let mttr_minutes: f64 = row.get::<Option<f64>, _>("avg_mttr").unwrap_or(0.0);
+
+        // Calculate SLA compliance: % of incidents where resolve time was within SLA target
+        let sla_row = sqlx::query(
+            "SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN i.duration_minutes <= sd.resolve_within_minutes THEN 1 ELSE 0 END) as compliant
+            FROM incidents i
+            JOIN sla_definitions sd ON sd.priority = i.priority
+            WHERE i.deleted_at IS NULL
+              AND i.service_id = ?
+              AND i.started_at >= ?
+              AND i.started_at <= ?
+              AND i.resolved_at IS NOT NULL"
+        )
+        .bind(&service_id)
+        .bind(&range.start)
+        .bind(&range.end)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        let sla_compliance_pct = if let Some(ref sr) = sla_row {
+            let total: i64 = sr.get::<Option<i64>, _>("total").unwrap_or(0);
+            let compliant: i64 = sr.get::<Option<i64>, _>("compliant").unwrap_or(0);
+            if total > 0 {
+                (compliant as f64 / total as f64) * 100.0
+            } else {
+                100.0 // No resolved incidents = 100% compliant
+            }
+        } else {
+            100.0
+        };
+
+        results.push(ServiceReliabilityScore {
+            service_id,
+            service_name,
+            incident_count,
+            mttr_minutes,
+            mttr_formatted: format_minutes(mttr_minutes),
+            sla_compliance_pct,
+        });
+    }
+
+    Ok(results)
+}
+
+/// Escalation funnel: severity distribution with percentages
+pub async fn get_escalation_funnel(
+    db: &SqlitePool,
+    range: &DateRange,
+) -> AppResult<Vec<EscalationFunnelEntry>> {
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM incidents WHERE deleted_at IS NULL AND started_at >= ? AND started_at <= ?"
+    )
+    .bind(&range.start)
+    .bind(&range.end)
+    .fetch_one(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let rows = sqlx::query(
+        "SELECT severity, COUNT(*) as cnt
+        FROM incidents
+        WHERE deleted_at IS NULL AND started_at >= ? AND started_at <= ?
+        GROUP BY severity
+        ORDER BY CASE severity
+            WHEN 'Critical' THEN 1
+            WHEN 'High' THEN 2
+            WHEN 'Medium' THEN 3
+            WHEN 'Low' THEN 4
+            ELSE 5
+        END"
+    )
+    .bind(&range.start)
+    .bind(&range.end)
+    .fetch_all(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows.iter().map(|r| {
+        let count: i64 = r.get("cnt");
+        EscalationFunnelEntry {
+            severity: r.get::<Option<String>, _>("severity").unwrap_or_else(|| "Unknown".to_string()),
+            count,
+            percentage: if total > 0 { (count as f64 / total as f64) * 100.0 } else { 0.0 },
+        }
+    }).collect())
 }
 
 // Exported function to get dashboard data by quarter ID

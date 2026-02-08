@@ -5,7 +5,7 @@ use crate::models::service::{CreateServiceRequest, Service, UpdateServiceRequest
 
 pub async fn insert_service(db: &SqlitePool, id: &str, req: &CreateServiceRequest) -> AppResult<Service> {
     sqlx::query(
-        "INSERT INTO services (id, name, category, default_severity, default_impact, description) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO services (id, name, category, default_severity, default_impact, description, owner, tier, runbook) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(&req.name)
@@ -13,6 +13,9 @@ pub async fn insert_service(db: &SqlitePool, id: &str, req: &CreateServiceReques
     .bind(&req.default_severity)
     .bind(&req.default_impact)
     .bind(&req.description)
+    .bind(&req.owner)
+    .bind(&req.tier)
+    .bind(&req.runbook)
     .execute(db)
     .await
     .map_err(|e| AppError::Database(e.to_string()))?;
@@ -28,16 +31,22 @@ pub async fn update_service(db: &SqlitePool, id: &str, req: &UpdateServiceReques
     let severity = req.default_severity.as_ref().unwrap_or(&existing.default_severity);
     let impact = req.default_impact.as_ref().unwrap_or(&existing.default_impact);
     let description = req.description.as_ref().unwrap_or(&existing.description);
+    let owner = req.owner.as_ref().unwrap_or(&existing.owner);
+    let tier = req.tier.as_ref().unwrap_or(&existing.tier);
+    let runbook = req.runbook.as_ref().unwrap_or(&existing.runbook);
     let is_active = req.is_active.unwrap_or(existing.is_active);
 
     sqlx::query(
-        "UPDATE services SET name=?, category=?, default_severity=?, default_impact=?, description=?, is_active=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+        "UPDATE services SET name=?, category=?, default_severity=?, default_impact=?, description=?, owner=?, tier=?, runbook=?, is_active=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
     )
     .bind(name)
     .bind(category)
     .bind(severity)
     .bind(impact)
     .bind(description)
+    .bind(owner)
+    .bind(tier)
+    .bind(runbook)
     .bind(is_active)
     .bind(id)
     .execute(db)
@@ -109,6 +118,9 @@ fn parse_service_row(row: &sqlx::sqlite::SqliteRow) -> Service {
         default_severity: row.get("default_severity"),
         default_impact: row.get("default_impact"),
         description: row.get::<Option<String>, _>("description").unwrap_or_default(),
+        owner: row.get::<Option<String>, _>("owner").unwrap_or_default(),
+        tier: row.get::<Option<String>, _>("tier").unwrap_or_else(|| "T3".to_string()),
+        runbook: row.get::<Option<String>, _>("runbook").unwrap_or_default(),
         is_active: row.get::<bool, _>("is_active"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),

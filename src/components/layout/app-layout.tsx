@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Menu, PanelLeftClose } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
+import { AiStatusBadge } from "@/components/ai/ai-status-badge";
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -24,7 +25,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar with sidebar toggle */}
-        <div className="flex h-10 shrink-0 items-center border-b px-2">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b px-2">
           <Button
             variant="ghost"
             size="icon"
@@ -38,6 +39,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               <Menu className="h-4 w-4" />
             )}
           </Button>
+          <AiStatusBadge />
         </div>
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>

@@ -33,6 +33,9 @@ mod input_validation {
             status: "Active".into(),
             started_at: "2025-01-15T10:00:00Z".into(),
             detected_at: "2025-01-15T10:05:00Z".into(),
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: Some("2025-01-15T10:10:00Z".into()),
             resolved_at: Some("2025-01-15T11:00:00Z".into()),
             root_cause: "Memory leak in connection pool".into(),
@@ -55,6 +58,9 @@ mod input_validation {
             default_severity: "High".into(),
             default_impact: "Medium".into(),
             description: "Primary API gateway for all microservices".into(),
+            owner: "Platform Team".into(),
+            tier: "T1".into(),
+            runbook: "".into(),
         }
     }
 
@@ -221,6 +227,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -248,6 +257,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -275,6 +287,9 @@ mod input_validation {
             impact: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -302,6 +317,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -329,6 +347,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -357,6 +378,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -384,6 +408,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -410,6 +437,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -437,6 +467,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             resolution: None,
@@ -464,6 +497,9 @@ mod input_validation {
             status: None,
             started_at: None,
             detected_at: None,
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: None,
@@ -682,6 +718,9 @@ mod input_validation {
             default_severity: None,
             default_impact: None,
             description: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -696,6 +735,9 @@ mod input_validation {
             category: None,
             default_impact: None,
             description: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -710,6 +752,9 @@ mod input_validation {
             category: None,
             default_severity: None,
             description: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -724,6 +769,9 @@ mod input_validation {
             default_severity: None,
             default_impact: None,
             description: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -738,6 +786,9 @@ mod input_validation {
             default_severity: None,
             default_impact: None,
             description: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -752,6 +803,9 @@ mod input_validation {
             category: None,
             default_severity: None,
             default_impact: None,
+            owner: None,
+            tier: None,
+            runbook: None,
             is_active: None,
         };
         let err = req.validate().unwrap_err();
@@ -1214,6 +1268,9 @@ mod data_integrity {
             status: "Active".into(),
             started_at: "2025-01-15T10:00:00Z".into(),
             detected_at: "2025-01-15T09:00:00Z".into(), // Before started
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: "".into(),
@@ -1241,6 +1298,9 @@ mod data_integrity {
             status: "Active".into(),
             started_at: "2025-01-15T10:00:00Z".into(),
             detected_at: "2025-01-15T10:05:00Z".into(),
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: Some("2025-01-15T10:03:00Z".into()), // Before detected
             resolved_at: None,
             root_cause: "".into(),
@@ -1268,6 +1328,9 @@ mod data_integrity {
             status: "Active".into(),
             started_at: "2025-01-15T10:00:00Z".into(),
             detected_at: "2025-01-15T10:05:00Z".into(),
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: Some("2025-01-15T09:30:00Z".into()), // Before started
             root_cause: "".into(),
@@ -1295,6 +1358,9 @@ mod data_integrity {
             status: "Active".into(),
             started_at: "2025-01-15T10:00:00Z".into(),
             detected_at: "2025-01-15T10:00:00Z".into(), // Equal to started
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
             responded_at: None,
             resolved_at: None,
             root_cause: "".into(),
@@ -1458,7 +1524,7 @@ mod bulk_operation_safety {
 
     /// Reproduce the status validation logic from bulk_update_status.
     fn validate_bulk_status(status: &str) -> Result<(), String> {
-        const VALID_STATUSES: &[&str] = &["Active", "Monitoring", "Resolved", "Post-Mortem"];
+        const VALID_STATUSES: &[&str] = &["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"];
         if !VALID_STATUSES.contains(&status) {
             Err(format!(
                 "Invalid status '{}'. Must be one of: {}",
@@ -1482,6 +1548,7 @@ mod bulk_operation_safety {
     #[test]
     fn bulk_update_accepts_all_valid_statuses() {
         assert!(validate_bulk_status("Active").is_ok());
+        assert!(validate_bulk_status("Acknowledged").is_ok());
         assert!(validate_bulk_status("Monitoring").is_ok());
         assert!(validate_bulk_status("Resolved").is_ok());
         assert!(validate_bulk_status("Post-Mortem").is_ok());

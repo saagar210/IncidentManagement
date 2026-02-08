@@ -25,6 +25,12 @@ pub async fn run_migrations(pool: &SqlitePool) -> AppResult<()> {
         (7, "Add report history", include_str!("sql/007_report_history.sql")),
         (8, "Add SLA definitions", include_str!("sql/008_sla_definitions.sql")),
         (9, "Add audit log", include_str!("sql/009_audit_log.sql")),
+        (10, "Service catalog enhancement", include_str!("sql/010_service_catalog.sql")),
+        (11, "Roles and checklists", include_str!("sql/011_roles_checklists.sql")),
+        (12, "Expanded lifecycle states", include_str!("sql/012_lifecycle_states.sql")),
+        (13, "Analytics and FTS", include_str!("sql/013_analytics_fts.sql")),
+        (14, "Post-mortem and AI", include_str!("sql/014_postmortem_ai.sql")),
+        (15, "UX features", include_str!("sql/015_ux_features.sql")),
     ];
 
     for (version, description, sql) in migrations {

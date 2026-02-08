@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Plus, Pencil, Trash2, Check, X, Download, Upload, FileSpreadsheet } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Plus, Pencil, Trash2, Check, X, Download, Upload, FileSpreadsheet, ExternalLink } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { copyFile } from "@tauri-apps/plugin-fs";
@@ -51,6 +52,8 @@ import {
   IMPACT_LEVELS,
   PRIORITY_LEVELS,
   SERVICE_CATEGORIES,
+  SERVICE_TIERS,
+  TIER_COLORS,
 } from "@/lib/constants";
 import type {
   Service,
@@ -65,18 +68,22 @@ import type {
   UpdateCustomFieldRequest,
 } from "@/types/custom-fields";
 import type { SlaDefinition } from "@/types/sla";
+import { OllamaConfig } from "@/components/settings/ollama-config";
+import { BackupConfig } from "@/components/settings/backup-config";
 
 // ===================== Services Tab =====================
 
 interface ServiceFormData {
   name: string;
   category: string;
+  tier: string;
   default_severity: string;
   default_impact: string;
   description: string;
 }
 
 function ServicesTab() {
+  const navigate = useNavigate();
   const { data: services, isLoading } = useServices();
   const createService = useCreateService();
   const updateService = useUpdateService();
@@ -89,6 +96,7 @@ function ServicesTab() {
     defaultValues: {
       name: "",
       category: "Other",
+      tier: "T3",
       default_severity: "Medium",
       default_impact: "Medium",
       description: "",
@@ -101,6 +109,7 @@ function ServicesTab() {
     const req: CreateServiceRequest = {
       name: data.name,
       category: data.category,
+      tier: data.tier,
       default_severity: data.default_severity,
       default_impact: data.default_impact,
       description: data.description || undefined,
@@ -119,6 +128,7 @@ function ServicesTab() {
     editForm.reset({
       name: service.name,
       category: service.category,
+      tier: service.tier,
       default_severity: service.default_severity,
       default_impact: service.default_impact,
       description: service.description ?? "",
@@ -130,6 +140,7 @@ function ServicesTab() {
     const req: UpdateServiceRequest = {
       name: data.name,
       category: data.category,
+      tier: data.tier,
       default_severity: data.default_severity,
       default_impact: data.default_impact,
       description: data.description || undefined,
@@ -184,6 +195,7 @@ function ServicesTab() {
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Category</TableHead>
+            <TableHead>Tier</TableHead>
             <TableHead>Default Severity</TableHead>
             <TableHead>Default Impact</TableHead>
             <TableHead>Active</TableHead>
@@ -204,6 +216,15 @@ function ServicesTab() {
                   {SERVICE_CATEGORIES.map((c) => (
                     <option key={c} value={c}>
                       {c}
+                    </option>
+                  ))}
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("tier")}>
+                  {SERVICE_TIERS.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
                     </option>
                   ))}
                 </Select>
@@ -267,6 +288,15 @@ function ServicesTab() {
                   </Select>
                 </TableCell>
                 <TableCell>
+                  <Select {...editForm.register("tier")}>
+                    {SERVICE_TIERS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
                   <Select {...editForm.register("default_severity")}>
                     {SEVERITY_LEVELS.map((s) => (
                       <option key={s} value={s}>
@@ -311,8 +341,23 @@ function ServicesTab() {
               </TableRow>
             ) : (
               <TableRow key={service.id}>
-                <TableCell className="font-medium">{service.name}</TableCell>
+                <TableCell className="font-medium">
+                  <button
+                    className="cursor-pointer text-left hover:underline"
+                    onClick={() => navigate(`/services/${service.id}`)}
+                  >
+                    {service.name}
+                  </button>
+                </TableCell>
                 <TableCell>{service.category}</TableCell>
+                <TableCell>
+                  <Badge
+                    variant="outline"
+                    className={TIER_COLORS[service.tier as keyof typeof TIER_COLORS] ?? ""}
+                  >
+                    {service.tier}
+                  </Badge>
+                </TableCell>
                 <TableCell>{service.default_severity}</TableCell>
                 <TableCell>{service.default_impact}</TableCell>
                 <TableCell>
@@ -327,6 +372,14 @@ function ServicesTab() {
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => navigate(`/services/${service.id}`)}
+                      title="View details"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                    </Button>
                     <Button
                       size="icon"
                       variant="ghost"
@@ -349,7 +402,7 @@ function ServicesTab() {
           )}
           {(!services || services.length === 0) && !showAdd && (
             <TableRow>
-              <TableCell colSpan={6} className="text-center text-muted-foreground">
+              <TableCell colSpan={7} className="text-center text-muted-foreground">
                 No services configured. Add one to get started.
               </TableCell>
             </TableRow>
@@ -1375,7 +1428,7 @@ function SlaTab() {
 
 // ===================== Settings View =====================
 
-type SettingsTab = "services" | "quarters" | "custom-fields" | "sla" | "import";
+type SettingsTab = "services" | "quarters" | "custom-fields" | "sla" | "import" | "backup" | "ai";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("services");
@@ -1386,6 +1439,8 @@ export function SettingsView() {
     { key: "custom-fields", label: "Custom Fields" },
     { key: "sla", label: "SLA Targets" },
     { key: "import", label: "Import & Data" },
+    { key: "backup", label: "Backup" },
+    { key: "ai", label: "AI (Ollama)" },
   ];
 
   return (
@@ -1415,6 +1470,8 @@ export function SettingsView() {
       {activeTab === "custom-fields" && <CustomFieldsTab />}
       {activeTab === "sla" && <SlaTab />}
       {activeTab === "import" && <ImportDataTab />}
+      {activeTab === "backup" && <BackupConfig />}
+      {activeTab === "ai" && <OllamaConfig />}
     </div>
   );
 }

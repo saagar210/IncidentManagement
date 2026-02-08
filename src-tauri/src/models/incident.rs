@@ -15,8 +15,14 @@ pub struct Incident {
     pub status: String,
     pub started_at: String,
     pub detected_at: String,
+    pub acknowledged_at: Option<String>,
+    pub first_response_at: Option<String>,
+    pub mitigation_started_at: Option<String>,
     pub responded_at: Option<String>,
     pub resolved_at: Option<String>,
+    pub reopened_at: Option<String>,
+    #[serde(default)]
+    pub reopen_count: i64,
     pub duration_minutes: Option<i64>,
     #[serde(default)]
     pub root_cause: String,
@@ -50,6 +56,9 @@ pub struct CreateIncidentRequest {
     pub status: String,
     pub started_at: String,
     pub detected_at: String,
+    pub acknowledged_at: Option<String>,
+    pub first_response_at: Option<String>,
+    pub mitigation_started_at: Option<String>,
     pub responded_at: Option<String>,
     pub resolved_at: Option<String>,
     #[serde(default)]
@@ -82,6 +91,9 @@ pub struct UpdateIncidentRequest {
     pub status: Option<String>,
     pub started_at: Option<String>,
     pub detected_at: Option<String>,
+    pub acknowledged_at: Option<String>,
+    pub first_response_at: Option<String>,
+    pub mitigation_started_at: Option<String>,
     pub responded_at: Option<String>,
     pub resolved_at: Option<String>,
     pub root_cause: Option<String>,
@@ -154,12 +166,30 @@ pub struct UpdateActionItemRequest {
 
 const VALID_SEVERITIES: &[&str] = &["Critical", "High", "Medium", "Low"];
 const VALID_IMPACTS: &[&str] = &["Critical", "High", "Medium", "Low"];
-const VALID_STATUSES: &[&str] = &["Active", "Monitoring", "Resolved", "Post-Mortem"];
+const VALID_STATUSES: &[&str] = &["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"];
 const VALID_ACTION_STATUSES: &[&str] = &["Open", "In-Progress", "Done"];
 
 const MAX_TITLE_LEN: usize = 500;
 const MAX_TEXT_FIELD_LEN: usize = 10_000;
 const MAX_REF_LEN: usize = 200;
+
+/// Returns the set of allowed target statuses for a given current status.
+/// The state machine is a directed graph, not a linear pipeline.
+pub fn allowed_transitions(current: &str) -> &'static [&'static str] {
+    match current {
+        "Active" => &["Acknowledged", "Monitoring", "Resolved"],
+        "Acknowledged" => &["Active", "Monitoring", "Resolved"],
+        "Monitoring" => &["Active", "Acknowledged", "Resolved"],
+        "Resolved" => &["Active", "Post-Mortem"],
+        "Post-Mortem" => &["Active"],
+        _ => &[],
+    }
+}
+
+/// Returns true if the transition is a reopen (going back to Active from Resolved/Post-Mortem).
+pub fn is_reopen(from: &str, to: &str) -> bool {
+    to == "Active" && (from == "Resolved" || from == "Post-Mortem")
+}
 
 impl CreateIncidentRequest {
     pub fn validate(&self) -> AppResult<()> {

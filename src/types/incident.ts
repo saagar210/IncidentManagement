@@ -9,8 +9,13 @@ export interface Incident {
   status: string;
   started_at: string;
   detected_at: string;
+  acknowledged_at: string | null;
+  first_response_at: string | null;
+  mitigation_started_at: string | null;
   responded_at: string | null;
   resolved_at: string | null;
+  reopened_at: string | null;
+  reopen_count: number;
   duration_minutes: number | null;
   root_cause: string;
   resolution: string;
@@ -34,6 +39,9 @@ export interface CreateIncidentRequest {
   status: string;
   started_at: string;
   detected_at: string;
+  acknowledged_at?: string | null;
+  first_response_at?: string | null;
+  mitigation_started_at?: string | null;
   responded_at?: string | null;
   resolved_at?: string | null;
   root_cause?: string;
@@ -56,6 +64,9 @@ export interface UpdateIncidentRequest {
   status?: string;
   started_at?: string;
   detected_at?: string;
+  acknowledged_at?: string | null;
+  first_response_at?: string | null;
+  mitigation_started_at?: string | null;
   responded_at?: string | null;
   resolved_at?: string | null;
   root_cause?: string;
@@ -119,6 +130,9 @@ export interface Service {
   default_severity: string;
   default_impact: string;
   description: string;
+  owner: string;
+  tier: string;
+  runbook: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -130,6 +144,9 @@ export interface CreateServiceRequest {
   default_severity: string;
   default_impact: string;
   description?: string;
+  owner?: string;
+  tier?: string;
+  runbook?: string;
 }
 
 export interface UpdateServiceRequest {
@@ -138,7 +155,25 @@ export interface UpdateServiceRequest {
   default_severity?: string;
   default_impact?: string;
   description?: string;
+  owner?: string;
+  tier?: string;
+  runbook?: string;
   is_active?: boolean;
+}
+
+export interface ServiceDependency {
+  id: string;
+  service_id: string;
+  depends_on_service_id: string;
+  depends_on_service_name: string | null;
+  dependency_type: string;
+  created_at: string;
+}
+
+export interface CreateServiceDependencyRequest {
+  service_id: string;
+  depends_on_service_id: string;
+  dependency_type?: string;
 }
 
 export interface QuarterConfig {

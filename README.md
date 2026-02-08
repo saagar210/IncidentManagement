@@ -1,26 +1,40 @@
 # Incident Management
 
-A local-first macOS desktop app for tracking IT incidents, calculating operational metrics, and generating polished DOCX/PDF reports for quarterly and annual leadership reviews.
+A local-first macOS desktop app for tracking IT incidents, running blameless post-mortems, detecting trends with AI, and generating polished DOCX/PDF reports for quarterly and annual leadership reviews.
 
-Built with **Tauri 2** + **React 19** + **Rust** + **SQLite**.
+Built with **Tauri 2** + **React 19** + **Rust** + **SQLite** + **Ollama AI**.
 
 ## Why This Exists
 
-Quarterly incident review preparation typically takes hours of manual data gathering from Jira, Slack, and memory. Metrics are calculated by hand, inconsistent between quarters, and don't support trend analysis. This app consolidates everything into a single tool with one-click report generation.
+Quarterly incident review preparation typically takes hours of manual data gathering from Jira, Slack, and memory. Metrics are calculated by hand, inconsistent between quarters, and don't support trend analysis. This app consolidates everything into a single offline-first tool with one-click report generation, structured post-mortems, AI-assisted analysis, and zero subscription cost.
 
 ## Features
 
 ### Incident Tracking
 - Full CRUD for incidents with severity, impact, status, timeline, root cause, resolution, and action items
 - Auto-computed priority from a severity x impact matrix (P0-P4)
-- Tabbed incident detail view (Details, Analysis, Actions & Extras, Activity)
+- 5-state lifecycle: **Active** → **Acknowledged** → **Monitoring** → **Resolved** → **Post-Mortem**
+- Directed-graph state machine — incidents can skip states and reopen from Resolved or Post-Mortem
+- Tabbed incident detail view (Details, Analysis, Actions & Extras, Post-Mortem, Activity)
 - Markdown editing for root cause, resolution, lessons learned, and notes
 - Quick-add dialog (Cmd+N) for fast incident logging
-- Search across titles, root causes, resolutions, and notes
+- Full-text search via FTS5 across titles, root causes, resolutions, and notes
 - Bulk status updates and bulk delete with multi-select
 - Recurrence tracking with incident linking
 - Tags, custom fields, and file attachments
 - Soft delete with trash/restore
+
+### Service Catalog
+- Service registry with owner, tier (T1-T4), and runbook (markdown)
+- Service dependency mapping with cycle detection
+- Default severity/impact auto-fill when selecting a service
+- Service detail view with dependency graph
+
+### Incident Roles & Checklists
+- Assign roles per incident: Incident Commander, Communications Lead, Technical Lead, Scribe, SME
+- Multi-assignment with primary flag (no unique constraint on role)
+- Checklist templates per service or incident type
+- Normalized checklist items enabling "which items get skipped?" analytics
 
 ### Action Items
 - Dedicated action items view with filtering by status and overdue
@@ -34,17 +48,41 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 - Real-time SLA status computation (on track / at risk / breached)
 - SLA badges on incident list and detail views
 - SLA breach notifications in the notification center
+- SLA recalculation on severity change
+
+### AI Integration (Ollama)
+- **Fully optional** — app works completely without Ollama installed
+- **AI Summary**: Generate executive summaries from incident data
+- **AI Stakeholder Updates**: Professional formatted updates keyed by severity
+- **AI Post-Mortem Drafts**: Generate complete post-mortem documents from incident data + contributing factors
+- **Root Cause Suggestions**: Analyze symptoms and service history, suggest ranked causes with investigation steps
+- **Similar Incidents**: FTS5-powered search to find related past incidents
+- **Duplicate Detection**: Warns when creating incidents that match existing open ones
+- **Service Trend Alerts**: Flags services with degrading reliability (50%+ incident increase week-over-week)
+- **Graceful degradation**: Health check on startup, re-check every 60s, status badge in app bar
+- Models: `qwen3:30b-a3b` (primary), `qwen3:4b` (fast)
+
+### Post-Mortem System
+- Structured contributing factors with categories (Process, Tooling, Communication, Human Factors, External)
+- Post-mortem templates by incident type (General, Security)
+- Draft → Review → Final workflow
+- AI-assisted draft generation
+- Searchable learnings database with FTS5 search
 
 ### Metrics Dashboard
 - **MTTR** (Mean Time To Resolve) and **MTTA** (Mean Time To Acknowledge)
 - Incidents by severity, impact, and service
 - Downtime by service
 - Recurrence rate and average tickets per incident
-- Quarter-over-quarter trend arrows with comparison overlays
+- Period-over-period comparison with directional indicators
+- Service reliability scorecard (per-service health score)
+- Backlog aging chart (open-incident age distribution)
+- Escalation funnel (severity distribution)
+- Service trend alerts (degrading/high-volume flags)
 - Heatmap calendar and hour-of-day histogram
+- Quarter-over-quarter trend arrows with comparison overlays
 - Configurable metric cards
-- All metrics computed in Rust for performance — single IPC call loads the entire dashboard
-- Click any chart segment to drill down into the filtered incident list
+- All metrics computed in Rust — single IPC call loads the dashboard
 
 ### Report Generation
 - One-click quarterly report generation in **DOCX** or **PDF** format
@@ -56,24 +94,32 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 - Report history tracking
 - Save anywhere via native file dialog
 
-### CSV Import
-- Import incidents from Jira or other CSV exports
-- Interactive column mapping with auto-detection
-- Preview with validation (green/yellow/red row status)
+### Data Management
+- **CSV/JSON export** of filtered incident views with CSV injection protection
+- **Database backup** to configurable directory with timestamped files
+- **CSV import** from Jira or other tools with interactive column mapping
 - Saveable mapping templates for repeated imports
-- Formula injection sanitization (OWASP-complete)
+
+### Stakeholder Updates & Handoff
+- Stakeholder update panel with severity-keyed templates (initial/status/final)
+- AI-powered stakeholder update generation
+- Update history with copy-to-clipboard
+- Shift handoff reports with auto-populated active incidents
+- Handoff history
 
 ### Audit & Notifications
-- Full audit trail for incident create/update/delete actions
-- Activity feed on each incident showing change history
+- Full audit trail for all CRUD operations (incidents, services, SLA, action items, checklists, roles)
+- Incident timeline stream (unified chronological view of all events)
+- Activity feed per incident showing change history
 - Notification center with SLA breach alerts, overdue action items, and active incident counts
 - Quarter-ending-soon reminders
 
 ### UX
 - Collapsible sidebar with smooth transition
 - Dark mode with system preference detection
-- Command palette (Cmd+K) for quick navigation and search
+- Command palette (Cmd+K) for quick navigation, search, and actions
 - Keyboard shortcuts for all major actions
+- Saved filter presets for incident lists
 - Onboarding wizard for first-time setup
 
 ## Tech Stack
@@ -88,7 +134,8 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 | Charts | Recharts 3 |
 | Data Fetching | TanStack Query v5 |
 | Backend | Rust |
-| Database | SQLite (sqlx, WAL mode) |
+| Database | SQLite (sqlx, WAL mode, FTS5) |
+| AI | Ollama via ollama-rs 0.3 |
 | Reports (DOCX) | docx-rs, pulldown-cmark |
 | Reports (PDF) | genpdf |
 | Forms | react-hook-form |
@@ -99,7 +146,7 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 | Shortcut | Action |
 |----------|--------|
 | `Cmd+N` | Quick-add incident |
-| `Cmd+K` | Search incidents |
+| `Cmd+K` | Command palette (search, navigate, actions) |
 | `Cmd+S` | Save current form |
 | `Cmd+1-4` | Navigate views (Dashboard, Incidents, Reports, Settings) |
 | `/` | Focus search (when not in an input) |
@@ -112,6 +159,7 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 - **Rust** (via [rustup](https://rustup.rs/))
 - **Node.js** 18+ and **pnpm**
 - **Xcode Command Line Tools** (`xcode-select --install`)
+- **Ollama** (optional, for AI features) — [ollama.com](https://ollama.com)
 
 ### Install & Run
 
@@ -121,6 +169,16 @@ cd IncidentManagement
 pnpm install
 pnpm tauri dev
 ```
+
+### Optional: Enable AI Features
+
+```bash
+# Install Ollama, then pull the models
+ollama pull qwen3:30b-a3b   # Primary model (~18GB)
+ollama pull qwen3:4b          # Fast model (~3GB)
+```
+
+The app auto-detects Ollama at `localhost:11434`. AI features appear when Ollama is running.
 
 ### Build for Production
 
@@ -146,30 +204,34 @@ pnpm test
 src/                          # React frontend
   components/                 # UI components
     ui/                       # shadcn/ui primitives (button, card, tabs, etc.)
-    incidents/                # Incident-specific (SLA badge, activity feed, action items)
-    dashboard/                # Charts, heatmap, metric cards
+    ai/                       # AI panels (summary, similar, root cause, dedup)
+    incidents/                # Incident-specific (SLA, checklist, roles, stakeholder, PM)
+    dashboard/                # Charts, heatmap, trends, analytics
     layout/                   # App layout, sidebar, command palette, notifications
+    services/                 # Service catalog (runbook editor, dep graph)
+    settings/                 # Ollama config, backup config
     onboarding/               # First-run wizard
   hooks/                      # TanStack Query hooks for all data operations
-  views/                      # Page-level view components (7 views)
+  views/                      # Page-level view components (9 views)
   types/                      # TypeScript type definitions
   lib/                        # Utilities (Tauri invoke wrapper, constants)
   test/                       # Test setup and mocks
 
 src-tauri/src/                # Rust backend
-  commands/                   # Tauri IPC command handlers (incidents, reports, SLA, audit)
-  db/                         # SQLite initialization, 9 migrations, query modules
-  models/                     # Data structs, validation, priority matrix, SLA, audit
-  reports/                    # DOCX + PDF generation, markdown converter, 8 report sections
+  ai/                         # Ollama integration (summarize, root cause, dedup, trends)
+  commands/                   # Tauri IPC command handlers
+  db/                         # SQLite initialization, 15 migrations, query modules
+  models/                     # Data structs, validation, priority matrix
+  reports/                    # DOCX + PDF generation, markdown converter
   import/                     # CSV parsing and column mapping
   security_tests.rs           # 158 security and correctness tests
 ```
 
 ## Database
 
-SQLite with WAL mode. The database file is created automatically in the app data directory on first launch. Foreign keys are enforced per-connection via `SqliteConnectOptions`.
+SQLite with WAL mode. The database file is created automatically in the app data directory on first launch. Foreign keys are enforced per-connection via `SqliteConnectOptions`. Full-text search via FTS5 with sync triggers.
 
-**Tables:** `incidents`, `services`, `action_items`, `quarter_config`, `import_templates`, `app_settings`, `tags`, `incident_tags`, `custom_field_definitions`, `custom_field_values`, `attachments`, `report_history`, `sla_definitions`, `audit_entries`
+**15 migrations** covering: incidents, services, action items, quarters, import templates, app settings, tags, custom fields, attachments, report history, SLA definitions, audit entries, service catalog (owner/tier/runbook/dependencies), roles, checklists, lifecycle states, FTS5, saved filters, post-mortems, contributing factors, stakeholder updates, and shift handoffs.
 
 15 services, FY27 Q1-Q4 quarters, and P0-P4 SLA defaults are seeded on first run.
 

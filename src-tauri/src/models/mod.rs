@@ -1,9 +1,15 @@
 pub mod audit;
+pub mod checklist;
 pub mod custom_field;
 pub mod incident;
 pub mod metrics;
 pub mod priority;
 pub mod quarter;
 pub mod report_history;
+pub mod role;
 pub mod service;
+pub mod saved_filter;
+pub mod postmortem;
+pub mod shift_handoff;
 pub mod sla;
+pub mod stakeholder_update;

@@ -14,6 +14,9 @@ import { ReportsView } from "@/views/reports-view";
 import { SettingsView } from "@/views/settings-view";
 import { TrashView } from "@/views/trash-view";
 import { ActionItemsView } from "@/views/action-items-view";
+import { ServiceDetailView } from "@/views/service-detail-view";
+import { LearningsView } from "@/views/learnings-view";
+import { ShiftHandoffView } from "@/views/shift-handoff-view";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard";
 import { useOnboardingComplete } from "@/hooks/use-onboarding";
 
@@ -61,6 +64,9 @@ function AppRoutes() {
         <Route path="/action-items" element={<ActionItemsView />} />
         <Route path="/incidents/new" element={<IncidentDetailView />} />
         <Route path="/incidents/:id" element={<IncidentDetailView />} />
+        <Route path="/services/:id" element={<ServiceDetailView />} />
+        <Route path="/learnings" element={<LearningsView />} />
+        <Route path="/handoff" element={<ShiftHandoffView />} />
         <Route path="/reports" element={<ReportsView />} />
         <Route path="/settings" element={<SettingsView />} />
         <Route path="/trash" element={<TrashView />} />

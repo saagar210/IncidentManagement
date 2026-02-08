@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor, Trash2, CheckSquare } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor, Trash2, CheckSquare, BookOpen, ArrowRightLeft } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { tauriInvoke } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,8 @@ const NAV_ITEMS = [
   { label: "Dashboard", icon: BarChart3, to: "/dashboard", shortcut: "1" },
   { label: "Incidents", icon: AlertTriangle, to: "/incidents", shortcut: "2" },
   { label: "Action Items", icon: CheckSquare, to: "/action-items", shortcut: null },
+  { label: "Learnings", icon: BookOpen, to: "/learnings", shortcut: null },
+  { label: "Handoff", icon: ArrowRightLeft, to: "/handoff", shortcut: null },
   { label: "Reports", icon: FileText, to: "/reports", shortcut: "3" },
   { label: "Settings", icon: Settings, to: "/settings", shortcut: "4" },
 ] as const;

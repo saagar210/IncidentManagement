@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("Report generation error: {0}")]
     Report(String),
 
+    #[error("AI error: {0}")]
+    Ai(String),
+
     #[error("{0}")]
     Internal(String),
 }

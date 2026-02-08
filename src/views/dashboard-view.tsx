@@ -8,7 +8,6 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useDashboardData } from "@/hooks/use-metrics";
 import { useQuarters } from "@/hooks/use-quarters";
 import {
@@ -24,57 +23,13 @@ import { HeatmapCalendar } from "@/components/dashboard/heatmap-calendar";
 import { HourHistogram } from "@/components/dashboard/hour-histogram";
 import { TrendCharts } from "@/components/dashboard/trend-charts";
 import { MetricCardConfig } from "@/components/dashboard/metric-card-config";
+import { BacklogAgingChart } from "@/components/dashboard/backlog-aging-chart";
+import { EscalationFunnel } from "@/components/dashboard/escalation-funnel";
+import { ServiceReliabilityScorecard } from "@/components/dashboard/service-reliability-scorecard";
+import { PeriodComparisonCard } from "@/components/dashboard/period-comparison-card";
+import { TrendAlerts } from "@/components/dashboard/trend-alerts";
 import { CHART_COLORS } from "@/lib/constants";
-import { cn } from "@/lib/utils";
-import type { MetricResult, CategoryCount } from "@/types/metrics";
-
-function TrendIcon({ trend }: { trend: MetricResult["trend"] }) {
-  switch (trend) {
-    case "Up":
-      return <TrendingUp className="h-4 w-4" />;
-    case "Down":
-      return <TrendingDown className="h-4 w-4" />;
-    case "Flat":
-      return <Minus className="h-4 w-4" />;
-    default:
-      return null;
-  }
-}
-
-function trendColor(trend: MetricResult["trend"], invertGood = false): string {
-  const isGood = invertGood
-    ? trend === "Up"
-    : trend === "Down";
-  if (trend === "Flat" || trend === "NoData") return "text-muted-foreground";
-  return isGood ? "text-green-500" : "text-red-500";
-}
-
-interface MetricCardProps {
-  label: string;
-  metric: MetricResult;
-  invertGood?: boolean;
-}
-
-function MetricCard({ label, metric, invertGood = false }: MetricCardProps) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {label}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{metric.formatted_value}</div>
-        <div className={cn("mt-1 flex items-center gap-1 text-xs", trendColor(metric.trend, invertGood))}>
-          <TrendIcon trend={metric.trend} />
-          {metric.previous_value != null && (
-            <span>prev: {metric.previous_value.toFixed(1)}</span>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+import type { CategoryCount } from "@/types/metrics";
 
 function DashboardSkeleton() {
   return (
@@ -209,19 +164,38 @@ export function DashboardView() {
         </div>
       </div>
 
-      {/* Metric Cards */}
+      {/* Service Trend Alerts */}
+      <TrendAlerts />
+
+      {/* Metric Cards — Period Comparison */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {config.mttr && (
-          <MetricCard label="MTTR (Mean Time to Resolve)" metric={dashboard.mttr} />
+          <PeriodComparisonCard
+            label="MTTR (Mean Time to Resolve)"
+            metric={dashboard.mttr}
+            description="Lower is better"
+          />
         )}
         {config.mtta && (
-          <MetricCard label="MTTA (Mean Time to Acknowledge)" metric={dashboard.mtta} />
+          <PeriodComparisonCard
+            label="MTTA (Mean Time to Acknowledge)"
+            metric={dashboard.mtta}
+            description="Lower is better"
+          />
         )}
         {config.recurrence_rate && (
-          <MetricCard label="Recurrence Rate" metric={dashboard.recurrence_rate} />
+          <PeriodComparisonCard
+            label="Recurrence Rate"
+            metric={dashboard.recurrence_rate}
+            description="Lower is better"
+          />
         )}
         {config.avg_tickets && (
-          <MetricCard label="Avg Tickets / Incident" metric={dashboard.avg_tickets} invertGood />
+          <PeriodComparisonCard
+            label="Avg Tickets / Incident"
+            metric={dashboard.avg_tickets}
+            invertGood
+          />
         )}
       </div>
 
@@ -298,6 +272,19 @@ export function DashboardView() {
           <HourHistogram data={hourData} />
         )}
       </div>
+
+      {/* Charts Row 3 - Analytics */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <BacklogAgingChart />
+        {startDate && endDate && (
+          <EscalationFunnel startDate={startDate} endDate={endDate} />
+        )}
+      </div>
+
+      {/* Service Reliability Scorecard */}
+      {startDate && endDate && (
+        <ServiceReliabilityScorecard startDate={startDate} endDate={endDate} />
+      )}
 
       {/* Trend Charts */}
       {config.trends && dashboard.trends.quarters.length > 0 && (

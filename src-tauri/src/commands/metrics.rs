@@ -3,7 +3,10 @@ use tauri::State;
 
 use crate::db::queries::{dashboard, metrics};
 use crate::error::AppError;
-use crate::models::metrics::{DashboardData, DayCount, HourCount, MetricFilters};
+use crate::models::metrics::{
+    BacklogAgingBucket, DashboardData, DayCount, EscalationFunnelEntry, HourCount, MetricFilters,
+    ServiceReliabilityScore,
+};
 
 #[tauri::command]
 pub async fn get_dashboard_data(
@@ -38,4 +41,43 @@ pub async fn get_incident_by_hour(
         end_date.as_deref(),
     )
     .await
+}
+
+#[tauri::command]
+pub async fn get_backlog_aging(
+    db: State<'_, SqlitePool>,
+) -> Result<Vec<BacklogAgingBucket>, AppError> {
+    metrics::get_backlog_aging(&*db).await
+}
+
+#[tauri::command]
+pub async fn get_service_reliability(
+    db: State<'_, SqlitePool>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<ServiceReliabilityScore>, AppError> {
+    if start_date.is_empty() || end_date.is_empty() {
+        return Err(AppError::Validation("Start and end dates are required".into()));
+    }
+    let range = metrics::DateRange {
+        start: start_date,
+        end: end_date,
+    };
+    metrics::get_service_reliability(&*db, &range).await
+}
+
+#[tauri::command]
+pub async fn get_escalation_funnel(
+    db: State<'_, SqlitePool>,
+    start_date: String,
+    end_date: String,
+) -> Result<Vec<EscalationFunnelEntry>, AppError> {
+    if start_date.is_empty() || end_date.is_empty() {
+        return Err(AppError::Validation("Start and end dates are required".into()));
+    }
+    let range = metrics::DateRange {
+        start: start_date,
+        end: end_date,
+    };
+    metrics::get_escalation_funnel(&*db, &range).await
 }

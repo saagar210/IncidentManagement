@@ -6,6 +6,7 @@ export type ImpactLevel = (typeof IMPACT_LEVELS)[number];
 
 export const STATUS_OPTIONS = [
   "Active",
+  "Acknowledged",
   "Monitoring",
   "Resolved",
   "Post-Mortem",
@@ -28,6 +29,35 @@ export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
 export const ACTION_ITEM_STATUSES = ["Open", "In-Progress", "Done"] as const;
 export type ActionItemStatus = (typeof ACTION_ITEM_STATUSES)[number];
 
+export const SERVICE_TIERS = ["T1", "T2", "T3", "T4"] as const;
+export type ServiceTier = (typeof SERVICE_TIERS)[number];
+
+export const TIER_LABELS: Record<ServiceTier, string> = {
+  T1: "T1 - Critical",
+  T2: "T2 - Important",
+  T3: "T3 - Standard",
+  T4: "T4 - Best Effort",
+};
+
+export const TIER_COLORS: Record<ServiceTier, string> = {
+  T1: "bg-red-500/10 text-red-500 border-red-500/20",
+  T2: "bg-orange-500/10 text-orange-500 border-orange-500/20",
+  T3: "bg-blue-500/10 text-blue-500 border-blue-500/20",
+  T4: "bg-zinc-500/10 text-zinc-500 border-zinc-500/20",
+};
+
+export const DEPENDENCY_TYPES = ["runtime", "build", "data", "optional"] as const;
+export type DependencyType = (typeof DEPENDENCY_TYPES)[number];
+
+export const INCIDENT_ROLES = [
+  "Incident Commander",
+  "Communications Lead",
+  "Technical Lead",
+  "Scribe",
+  "SME",
+] as const;
+export type IncidentRoleType = (typeof INCIDENT_ROLES)[number];
+
 export const SEVERITY_COLORS: Record<SeverityLevel, string> = {
   Critical: "bg-red-500/10 text-red-500 border-red-500/20",
   High: "bg-orange-500/10 text-orange-500 border-orange-500/20",
@@ -47,9 +77,18 @@ export const PRIORITY_COLORS: Record<PriorityLevel, string> = {
 
 export const STATUS_COLORS: Record<StatusOption, string> = {
   Active: "bg-red-500/10 text-red-500 border-red-500/20",
+  Acknowledged: "bg-orange-500/10 text-orange-500 border-orange-500/20",
   Monitoring: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
   Resolved: "bg-green-500/10 text-green-600 border-green-500/20",
   "Post-Mortem": "bg-blue-500/10 text-blue-500 border-blue-500/20",
+};
+
+export const STATUS_TRANSITIONS: Record<StatusOption, StatusOption[]> = {
+  Active: ["Acknowledged", "Monitoring", "Resolved"],
+  Acknowledged: ["Active", "Monitoring", "Resolved"],
+  Monitoring: ["Active", "Acknowledged", "Resolved"],
+  Resolved: ["Active", "Post-Mortem"],
+  "Post-Mortem": ["Active"],
 };
 
 export const CHART_COLORS = {
@@ -61,6 +100,7 @@ export const CHART_COLORS = {
   },
   status: {
     Active: "hsl(0, 84%, 60%)",
+    Acknowledged: "hsl(25, 95%, 53%)",
     Monitoring: "hsl(45, 93%, 47%)",
     Resolved: "hsl(142, 76%, 36%)",
     "Post-Mortem": "hsl(217, 91%, 60%)",

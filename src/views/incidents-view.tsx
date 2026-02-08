@@ -20,6 +20,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { IncidentTimeline } from "@/components/incidents/incident-timeline";
 import { SlaStatusBadge } from "@/components/incidents/SlaStatusBadge";
+import { SavedFilterBar } from "@/components/incidents/saved-filter-bar";
+import { ExportMenu } from "@/components/incidents/export-menu";
 import {
   SEVERITY_LEVELS,
   STATUS_OPTIONS,
@@ -179,6 +181,7 @@ export function IncidentsView() {
               <GanttChart className="h-4 w-4" />
             </Button>
           </div>
+          <ExportMenu filters={filters} />
           <Button onClick={() => navigate("/incidents/new")}>
             <Plus className="h-4 w-4" />
             New Incident
@@ -237,6 +240,16 @@ export function IncidentsView() {
           ))}
         </Select>
       </div>
+
+      {/* Saved Filters */}
+      <SavedFilterBar
+        currentFilters={filters}
+        onApplyFilter={(f) => {
+          setFilters(f);
+          setPage(0);
+          setSelectedIds(new Set());
+        }}
+      />
 
       {/* Content */}
       {isLoading ? (

@@ -13,6 +13,8 @@ import {
   Monitor,
   Trash2,
   CheckSquare,
+  BookOpen,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useSearchIncidents } from "@/hooks/use-incidents";
 import { useTheme, type Theme } from "@/hooks/use-theme";
@@ -120,6 +122,20 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               >
                 <CheckSquare className="h-4 w-4 text-muted-foreground" />
                 Action Items
+              </Command.Item>
+              <Command.Item
+                onSelect={() => runAction(() => navigate("/learnings"))}
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
+              >
+                <BookOpen className="h-4 w-4 text-muted-foreground" />
+                Learnings
+              </Command.Item>
+              <Command.Item
+                onSelect={() => runAction(() => navigate("/handoff"))}
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
+              >
+                <ArrowRightLeft className="h-4 w-4 text-muted-foreground" />
+                Shift Handoff
               </Command.Item>
               <Command.Item
                 onSelect={() => runAction(() => navigate("/reports"))}
