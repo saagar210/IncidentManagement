@@ -1,0 +1,610 @@
+import { useState } from "react";
+import { Plus, Pencil, Trash2, Check, X } from "lucide-react";
+import { useForm } from "react-hook-form";
+import {
+  useServices,
+  useCreateService,
+  useUpdateService,
+  useDeleteService,
+} from "@/hooks/use-services";
+import {
+  useQuarters,
+  useUpsertQuarter,
+  useDeleteQuarter,
+} from "@/hooks/use-quarters";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import {
+  SEVERITY_LEVELS,
+  IMPACT_LEVELS,
+  SERVICE_CATEGORIES,
+} from "@/lib/constants";
+import type {
+  Service,
+  CreateServiceRequest,
+  UpdateServiceRequest,
+  QuarterConfig,
+  UpsertQuarterRequest,
+} from "@/types/incident";
+
+// ===================== Services Tab =====================
+
+interface ServiceFormData {
+  name: string;
+  category: string;
+  default_severity: string;
+  default_impact: string;
+  description: string;
+}
+
+function ServicesTab() {
+  const { data: services, isLoading } = useServices();
+  const createService = useCreateService();
+  const updateService = useUpdateService();
+  const deleteService = useDeleteService();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const addForm = useForm<ServiceFormData>({
+    defaultValues: {
+      name: "",
+      category: "Other",
+      default_severity: "Medium",
+      default_impact: "Medium",
+      description: "",
+    },
+  });
+
+  const editForm = useForm<ServiceFormData>();
+
+  const handleAddSubmit = async (data: ServiceFormData) => {
+    const req: CreateServiceRequest = {
+      name: data.name,
+      category: data.category,
+      default_severity: data.default_severity,
+      default_impact: data.default_impact,
+      description: data.description || undefined,
+    };
+    await createService.mutateAsync(req);
+    addForm.reset();
+    setShowAdd(false);
+  };
+
+  const startEdit = (service: Service) => {
+    setEditingId(service.id);
+    editForm.reset({
+      name: service.name,
+      category: service.category,
+      default_severity: service.default_severity,
+      default_impact: service.default_impact,
+      description: service.description ?? "",
+    });
+  };
+
+  const handleEditSubmit = async (data: ServiceFormData) => {
+    if (!editingId) return;
+    const req: UpdateServiceRequest = {
+      name: data.name,
+      category: data.category,
+      default_severity: data.default_severity,
+      default_impact: data.default_impact,
+      description: data.description || undefined,
+    };
+    await updateService.mutateAsync({ id: editingId, service: req });
+    setEditingId(null);
+  };
+
+  const handleToggleActive = async (service: Service) => {
+    await updateService.mutateAsync({
+      id: service.id,
+      service: { is_active: !service.is_active },
+    });
+  };
+
+  const handleDelete = async (service: Service) => {
+    const confirmed = window.confirm(
+      `Delete service "${service.name}"? This will fail if incidents reference it.`
+    );
+    if (!confirmed) return;
+    await deleteService.mutateAsync(service.id);
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading services...</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Services</h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} disabled={showAdd}>
+          <Plus className="h-4 w-4" />
+          Add Service
+        </Button>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Category</TableHead>
+            <TableHead>Default Severity</TableHead>
+            <TableHead>Default Impact</TableHead>
+            <TableHead>Active</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {showAdd && (
+            <TableRow>
+              <TableCell>
+                <Input
+                  placeholder="Service name"
+                  {...addForm.register("name", { required: true })}
+                />
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("category")}>
+                  {SERVICE_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("default_severity")}>
+                  {SEVERITY_LEVELS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("default_impact")}>
+                  {IMPACT_LEVELS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </TableCell>
+              <TableCell>--</TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={addForm.handleSubmit(handleAddSubmit)}
+                    disabled={createService.isPending}
+                  >
+                    <Check className="h-4 w-4 text-green-500" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowAdd(false);
+                      addForm.reset();
+                    }}
+                  >
+                    <X className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+          {services?.map((service) =>
+            editingId === service.id ? (
+              <TableRow key={service.id}>
+                <TableCell>
+                  <Input {...editForm.register("name", { required: true })} />
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("category")}>
+                    {SERVICE_CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("default_severity")}>
+                    {SEVERITY_LEVELS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("default_impact")}>
+                    {IMPACT_LEVELS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Badge variant={service.is_active ? "default" : "secondary"}>
+                    {service.is_active ? "Yes" : "No"}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={editForm.handleSubmit(handleEditSubmit)}
+                      disabled={updateService.isPending}
+                    >
+                      <Check className="h-4 w-4 text-green-500" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              <TableRow key={service.id}>
+                <TableCell className="font-medium">{service.name}</TableCell>
+                <TableCell>{service.category}</TableCell>
+                <TableCell>{service.default_severity}</TableCell>
+                <TableCell>{service.default_impact}</TableCell>
+                <TableCell>
+                  <button
+                    onClick={() => handleToggleActive(service)}
+                    className="cursor-pointer"
+                  >
+                    <Badge variant={service.is_active ? "default" : "secondary"}>
+                      {service.is_active ? "Yes" : "No"}
+                    </Badge>
+                  </button>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => startEdit(service)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleDelete(service)}
+                      disabled={deleteService.isPending}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          )}
+          {(!services || services.length === 0) && !showAdd && (
+            <TableRow>
+              <TableCell colSpan={6} className="text-center text-muted-foreground">
+                No services configured. Add one to get started.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ===================== Quarters Tab =====================
+
+interface QuarterFormData {
+  fiscal_year: number;
+  quarter_number: number;
+  start_date: string;
+  end_date: string;
+  label: string;
+}
+
+function QuartersTab() {
+  const { data: quarters, isLoading } = useQuarters();
+  const upsertQuarter = useUpsertQuarter();
+  const deleteQuarter = useDeleteQuarter();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const addForm = useForm<QuarterFormData>({
+    defaultValues: {
+      fiscal_year: new Date().getFullYear(),
+      quarter_number: 1,
+      start_date: "",
+      end_date: "",
+      label: "",
+    },
+  });
+
+  const editForm = useForm<QuarterFormData>();
+
+  const handleAddSubmit = async (data: QuarterFormData) => {
+    const req: UpsertQuarterRequest = {
+      fiscal_year: data.fiscal_year,
+      quarter_number: data.quarter_number,
+      start_date: data.start_date,
+      end_date: data.end_date,
+      label: data.label || `FY${data.fiscal_year} Q${data.quarter_number}`,
+    };
+    await upsertQuarter.mutateAsync(req);
+    addForm.reset();
+    setShowAdd(false);
+  };
+
+  const startEdit = (quarter: QuarterConfig) => {
+    setEditingId(quarter.id);
+    editForm.reset({
+      fiscal_year: quarter.fiscal_year,
+      quarter_number: quarter.quarter_number,
+      start_date: quarter.start_date.split("T")[0],
+      end_date: quarter.end_date.split("T")[0],
+      label: quarter.label,
+    });
+  };
+
+  const handleEditSubmit = async (data: QuarterFormData) => {
+    if (!editingId) return;
+    const req: UpsertQuarterRequest = {
+      id: editingId,
+      fiscal_year: data.fiscal_year,
+      quarter_number: data.quarter_number,
+      start_date: data.start_date,
+      end_date: data.end_date,
+      label: data.label || `FY${data.fiscal_year} Q${data.quarter_number}`,
+    };
+    await upsertQuarter.mutateAsync(req);
+    setEditingId(null);
+  };
+
+  const handleDelete = async (quarter: QuarterConfig) => {
+    const confirmed = window.confirm(
+      `Delete quarter "${quarter.label}"? This cannot be undone.`
+    );
+    if (!confirmed) return;
+    await deleteQuarter.mutateAsync(quarter.id);
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading quarters...</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Quarter Configurations</h2>
+        <Button size="sm" onClick={() => setShowAdd(true)} disabled={showAdd}>
+          <Plus className="h-4 w-4" />
+          Add Quarter
+        </Button>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Label</TableHead>
+            <TableHead>Fiscal Year</TableHead>
+            <TableHead>Quarter</TableHead>
+            <TableHead>Start Date</TableHead>
+            <TableHead>End Date</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {showAdd && (
+            <TableRow>
+              <TableCell>
+                <Input
+                  placeholder="e.g., FY2025 Q1"
+                  {...addForm.register("label")}
+                />
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  {...addForm.register("fiscal_year", { valueAsNumber: true })}
+                />
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("quarter_number", { valueAsNumber: true })}>
+                  <option value={1}>Q1</option>
+                  <option value={2}>Q2</option>
+                  <option value={3}>Q3</option>
+                  <option value={4}>Q4</option>
+                </Select>
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="date"
+                  {...addForm.register("start_date", { required: true })}
+                />
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="date"
+                  {...addForm.register("end_date", { required: true })}
+                />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={addForm.handleSubmit(handleAddSubmit)}
+                    disabled={upsertQuarter.isPending}
+                  >
+                    <Check className="h-4 w-4 text-green-500" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowAdd(false);
+                      addForm.reset();
+                    }}
+                  >
+                    <X className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+          {quarters?.map((quarter) =>
+            editingId === quarter.id ? (
+              <TableRow key={quarter.id}>
+                <TableCell>
+                  <Input {...editForm.register("label")} />
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    min={2000}
+                    max={2100}
+                    {...editForm.register("fiscal_year", { valueAsNumber: true })}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("quarter_number", { valueAsNumber: true })}>
+                    <option value={1}>Q1</option>
+                    <option value={2}>Q2</option>
+                    <option value={3}>Q3</option>
+                    <option value={4}>Q4</option>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <Input type="date" {...editForm.register("start_date")} />
+                </TableCell>
+                <TableCell>
+                  <Input type="date" {...editForm.register("end_date")} />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={editForm.handleSubmit(handleEditSubmit)}
+                      disabled={upsertQuarter.isPending}
+                    >
+                      <Check className="h-4 w-4 text-green-500" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              <TableRow key={quarter.id}>
+                <TableCell className="font-medium">{quarter.label}</TableCell>
+                <TableCell>{quarter.fiscal_year}</TableCell>
+                <TableCell>Q{quarter.quarter_number}</TableCell>
+                <TableCell>{quarter.start_date.split("T")[0]}</TableCell>
+                <TableCell>{quarter.end_date.split("T")[0]}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => startEdit(quarter)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleDelete(quarter)}
+                      disabled={deleteQuarter.isPending}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          )}
+          {(!quarters || quarters.length === 0) && !showAdd && (
+            <TableRow>
+              <TableCell colSpan={6} className="text-center text-muted-foreground">
+                No quarters configured. Add one to define reporting periods.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ===================== Settings View =====================
+
+type SettingsTab = "services" | "quarters";
+
+export function SettingsView() {
+  const [activeTab, setActiveTab] = useState<SettingsTab>("services");
+
+  return (
+    <div className="space-y-6 p-6">
+      <h1 className="text-2xl font-semibold">Settings</h1>
+
+      <div className="border-b">
+        <nav className="-mb-px flex gap-4">
+          <button
+            onClick={() => setActiveTab("services")}
+            className={`border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${
+              activeTab === "services"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Services
+          </button>
+          <button
+            onClick={() => setActiveTab("quarters")}
+            className={`border-b-2 px-1 pb-2 text-sm font-medium transition-colors ${
+              activeTab === "quarters"
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Quarters
+          </button>
+        </nav>
+      </div>
+
+      {activeTab === "services" && <ServicesTab />}
+      {activeTab === "quarters" && <QuartersTab />}
+    </div>
+  );
+}
