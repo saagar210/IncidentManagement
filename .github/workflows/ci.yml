@@ -89,9 +89,10 @@ jobs:
             echo "::warning title=Codacy disabled::Skipping Codacy analysis because CODACY_PROJECT_TOKEN is not configured."
           fi
 
-      - name: Run Codacy analysis
+      - name: Run Codacy analysis (no upload)
         if: ${{ steps.codacy_token.outputs.enabled == 'true' }}
         uses: codacy/codacy-analysis-cli-action@v4
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          upload: true
+          # Upload requires enabling Codacy "Repository Analysis" for the project.
+          upload: false

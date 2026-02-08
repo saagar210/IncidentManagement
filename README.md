@@ -186,7 +186,7 @@ The app auto-detects Ollama at `localhost:11434`. AI features appear when Ollama
 
 ### Optional: Enable Codacy Upload in CI
 
-The `codacy` CI job runs only on `main`. To upload analysis results to Codacy, add a repository secret named `CODACY_PROJECT_TOKEN` in GitHub settings.
+The `codacy` CI job runs only on `main`. To upload analysis results to Codacy, add a repository secret named `CODACY_PROJECT_TOKEN` in GitHub settings and enable Codacy "Repository Analysis" for the project in Codacy settings.
 
 ### Build for Production
 
