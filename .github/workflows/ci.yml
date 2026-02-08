@@ -72,12 +72,25 @@ jobs:
 
   codacy:
     runs-on: ubuntu-latest
-    if: ${{ github.ref == 'refs/heads/main' && secrets.CODACY_PROJECT_TOKEN != '' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check Codacy token
+        id: codacy_token
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: |
+          if [ -n "$CODACY_PROJECT_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping Codacy analysis because CODACY_PROJECT_TOKEN is not configured."
+          fi
+
       - name: Run Codacy analysis
+        if: ${{ steps.codacy_token.outputs.enabled == 'true' }}
         uses: codacy/codacy-analysis-cli-action@v4
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
