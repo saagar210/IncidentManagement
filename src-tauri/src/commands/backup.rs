@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use tauri::State;
 
 use crate::error::AppError;
 
@@ -12,11 +14,19 @@ pub struct BackupInfo {
 
 #[tauri::command]
 pub async fn create_backup(
-    db_path: String,
+    db: State<'_, SqlitePool>,
     backup_dir: String,
 ) -> Result<String, AppError> {
+    let db_path = resolve_main_db_path(&db).await?;
+    create_backup_from_path(&db_path, &backup_dir).await
+}
+
+async fn create_backup_from_path(
+    db_path: &str,
+    backup_dir: &str,
+) -> Result<String, AppError> {
     // Validate source database file exists
-    let src_metadata = tokio::fs::metadata(&db_path)
+    let src_metadata = tokio::fs::metadata(db_path)
         .await
         .map_err(|e| AppError::Io(e))?;
 
@@ -27,17 +37,17 @@ pub async fn create_backup(
     }
 
     // Create backup directory if it doesn't exist
-    tokio::fs::create_dir_all(&backup_dir)
+    tokio::fs::create_dir_all(backup_dir)
         .await
         .map_err(|e| AppError::Io(e))?;
 
     // Generate timestamped backup filename
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let backup_name = format!("backup_{}.db", timestamp);
-    let backup_path = std::path::Path::new(&backup_dir).join(&backup_name);
+    let backup_path = std::path::Path::new(backup_dir).join(&backup_name);
 
     // Copy the SQLite file
-    tokio::fs::copy(&db_path, &backup_path)
+    tokio::fs::copy(db_path, &backup_path)
         .await
         .map_err(|e| AppError::Io(e))?;
 
@@ -47,6 +57,23 @@ pub async fn create_backup(
         .to_string();
 
     Ok(path_str)
+}
+
+async fn resolve_main_db_path(db: &SqlitePool) -> Result<String, AppError> {
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT file FROM pragma_database_list WHERE name = 'main'")
+            .fetch_optional(db)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+
+    let resolved = path.unwrap_or_default();
+    if resolved.trim().is_empty() {
+        return Err(AppError::Validation(
+            "Unable to resolve database path for backup".into(),
+        ));
+    }
+
+    Ok(resolved)
 }
 
 #[tauri::command]
@@ -116,4 +143,60 @@ pub async fn list_backups(
     backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
 
     Ok(backups)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_backup_from_path, resolve_main_db_path};
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::str::FromStr;
+    use tempfile::tempdir;
+
+    async fn setup_file_db() -> (tempfile::TempDir, sqlx::SqlitePool, String) {
+        let dir = tempdir().expect("tempdir");
+        let db_path = dir.path().join("incidents.db");
+        let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+
+        let options = SqliteConnectOptions::from_str(&db_url)
+            .expect("valid sqlite url")
+            .journal_mode(SqliteJournalMode::Wal)
+            .pragma("foreign_keys", "ON")
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+
+        sqlx::query("CREATE TABLE IF NOT EXISTS smoke (id TEXT PRIMARY KEY)")
+            .execute(&pool)
+            .await
+            .expect("create table");
+
+        (dir, pool, db_path.to_string_lossy().to_string())
+    }
+
+    #[tokio::test]
+    async fn resolve_main_db_path_returns_file_path() {
+        let (_dir, pool, expected_path) = setup_file_db().await;
+        let resolved = resolve_main_db_path(&pool).await.expect("resolve path");
+        let resolved_canonical = std::fs::canonicalize(&resolved)
+            .expect("canonicalize resolved path");
+        let expected_canonical = std::fs::canonicalize(&expected_path)
+            .expect("canonicalize expected path");
+        assert_eq!(resolved_canonical, expected_canonical);
+    }
+
+    #[tokio::test]
+    async fn create_backup_from_path_copies_database_file() {
+        let (dir, _pool, db_path) = setup_file_db().await;
+        let backup_dir = dir.path().join("backups");
+        let backup_dir_str = backup_dir.to_string_lossy().to_string();
+        let backup_path = create_backup_from_path(&db_path, &backup_dir_str)
+            .await
+            .expect("create backup");
+        assert!(std::path::Path::new(&backup_path).exists());
+        assert!(backup_path.ends_with(".db"));
+    }
 }

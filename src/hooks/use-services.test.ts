@@ -1,8 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { setMockInvokeHandler } from "@/test/mocks/tauri";
-import { createHookWrapper } from "@/test/test-utils";
-import { useServices, useActiveServices } from "./use-services";
+import { createHookWrapper, createTestQueryClient } from "@/test/test-utils";
+import {
+  useServices,
+  useActiveServices,
+  useAddServiceDependency,
+  useRemoveServiceDependency,
+} from "./use-services";
 import type { Service } from "@/types/incident";
 
 const mockServices: Service[] = [
@@ -84,5 +89,73 @@ describe("useActiveServices", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toHaveLength(1);
     expect(result.current.data![0].name).toBe("Slack");
+  });
+});
+
+describe("service dependency mutations", () => {
+  it("invalidates service-specific dependency caches after add", async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    setMockInvokeHandler((cmd) => {
+      if (cmd === "add_service_dependency") {
+        return {
+          id: "sdep-1",
+          service_id: "svc-1",
+          depends_on_service_id: "svc-2",
+          depends_on_service_name: "Legacy Tool",
+          dependency_type: "runtime",
+          created_at: "2026-01-01T00:00:00Z",
+        };
+      }
+      throw new Error(`Unexpected command: ${cmd}`);
+    });
+
+    const { result } = renderHook(() => useAddServiceDependency(), {
+      wrapper: createHookWrapper({ queryClient }),
+    });
+
+    await result.current.mutateAsync({
+      service_id: "svc-1",
+      depends_on_service_id: "svc-2",
+      dependency_type: "runtime",
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["service-dependencies", "svc-1"],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["service-dependents", "svc-2"],
+    });
+  });
+
+  it("invalidates service-specific dependency caches after remove", async () => {
+    const queryClient = createTestQueryClient();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    setMockInvokeHandler((cmd, args) => {
+      if (cmd === "remove_service_dependency") {
+        expect(args?.id).toBe("sdep-1");
+        return undefined;
+      }
+      throw new Error(`Unexpected command: ${cmd}`);
+    });
+
+    const { result } = renderHook(() => useRemoveServiceDependency(), {
+      wrapper: createHookWrapper({ queryClient }),
+    });
+
+    await result.current.mutateAsync({
+      id: "sdep-1",
+      serviceId: "svc-1",
+      dependsOnServiceId: "svc-2",
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["service-dependencies", "svc-1"],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["service-dependents", "svc-2"],
+    });
   });
 });

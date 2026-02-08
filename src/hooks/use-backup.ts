@@ -20,7 +20,7 @@ export function useBackups(backupDir: string) {
 export function useCreateBackup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (params: { dbPath: string; backupDir: string }) =>
+    mutationFn: (params: { backupDir: string }) =>
       tauriInvoke<string>("create_backup", params),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["backups"] });
