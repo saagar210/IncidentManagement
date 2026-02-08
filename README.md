@@ -184,6 +184,10 @@ ollama pull qwen3:4b          # Fast model (~3GB)
 
 The app auto-detects Ollama at `localhost:11434`. AI features appear when Ollama is running.
 
+### Optional: Enable Codacy Upload in CI
+
+The `codacy` CI job runs only on `main`. To upload analysis results to Codacy, add a repository secret named `CODACY_PROJECT_TOKEN` in GitHub settings.
+
 ### Build for Production
 
 ```bash
