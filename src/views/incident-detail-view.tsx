@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Trash2, Save } from "lucide-react";
 import {
   useIncident,
@@ -9,12 +10,17 @@ import {
   useDeleteIncident,
 } from "@/hooks/use-incidents";
 import { useActiveServices } from "@/hooks/use-services";
+import { tauriInvoke } from "@/lib/tauri";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { TagInput } from "@/components/ui/tag-input";
+import { AttachmentList } from "@/components/incidents/attachment-list";
+import { CustomFieldsForm } from "@/components/incidents/custom-fields-form";
+import { toast } from "@/components/ui/use-toast";
 import {
   SEVERITY_LEVELS,
   IMPACT_LEVELS,
@@ -103,6 +109,22 @@ export function IncidentDetailView() {
   const createMutation = useCreateIncident();
   const updateMutation = useUpdateIncident();
   const deleteMutation = useDeleteIncident();
+  const queryClient = useQueryClient();
+
+  // Tags
+  const [tags, setTags] = useState<string[]>([]);
+  const { data: existingTags } = useQuery({
+    queryKey: ["incident-tags", id],
+    queryFn: () => tauriInvoke<string[]>("get_incident_tags", { incidentId: id as string }),
+    enabled: isEditMode,
+  });
+  const { data: allTags } = useQuery({
+    queryKey: ["all-tags"],
+    queryFn: () => tauriInvoke<string[]>("get_all_tags"),
+  });
+  useEffect(() => {
+    if (existingTags) setTags(existingTags);
+  }, [existingTags]);
 
   const {
     register,
@@ -187,6 +209,15 @@ export function IncidentDetailView() {
     }
   }, [watchedServiceId, services, isEditMode, setValue]);
 
+  // Callback for custom fields save
+  const customFieldsSaveRef = useRef<(() => Promise<void>) | null>(null);
+  const handleCustomFieldsSaveRef = useCallback(
+    (saveFn: (() => Promise<void>) | null) => {
+      customFieldsSaveRef.current = saveFn;
+    },
+    []
+  );
+
   const onSubmit = async (data: IncidentFormData) => {
     const payload: CreateIncidentRequest = {
       title: data.title,
@@ -210,21 +241,42 @@ export function IncidentDetailView() {
     };
 
     try {
+      let incidentId: string;
       if (isEditMode && id) {
         await updateMutation.mutateAsync({ id, incident: payload });
+        incidentId = id;
       } else {
-        await createMutation.mutateAsync(payload);
+        const created = await createMutation.mutateAsync(payload);
+        incidentId = created.id;
       }
+
+      // Save tags
+      await tauriInvoke("set_incident_tags", {
+        incidentId,
+        tags,
+      });
+      queryClient.invalidateQueries({ queryKey: ["incident-tags"] });
+      queryClient.invalidateQueries({ queryKey: ["all-tags"] });
+
+      // Save custom fields
+      if (customFieldsSaveRef.current) {
+        await customFieldsSaveRef.current();
+      }
+
       navigate("/incidents");
-    } catch {
-      // Error is handled by global mutation error handler
+    } catch (err) {
+      toast({
+        title: "Save failed",
+        description: String(err),
+        variant: "destructive",
+      });
     }
   };
 
   const handleDelete = async () => {
     if (!id) return;
     const confirmed = window.confirm(
-      "Are you sure you want to delete this incident? This cannot be undone."
+      "Move this incident to trash?"
     );
     if (!confirmed) return;
     try {
@@ -314,6 +366,15 @@ export function IncidentDetailView() {
                 id="external_ref"
                 placeholder="e.g., JIRA-1234"
                 {...register("external_ref")}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <Label>Tags</Label>
+              <TagInput
+                tags={tags}
+                onChange={setTags}
+                suggestions={allTags ?? []}
+                placeholder="Add tags..."
               />
             </div>
           </CardContent>
@@ -473,43 +534,51 @@ export function IncidentDetailView() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="root_cause">Root Cause</Label>
-              <Textarea
-                id="root_cause"
-                rows={3}
+              <Label>Root Cause</Label>
+              <MarkdownEditor
+                value={watch("root_cause")}
+                onChange={(val) => setValue("root_cause", val, { shouldDirty: true })}
                 placeholder="What caused this incident?"
-                {...register("root_cause")}
               />
             </div>
             <div>
-              <Label htmlFor="resolution">Resolution</Label>
-              <Textarea
-                id="resolution"
-                rows={3}
+              <Label>Resolution</Label>
+              <MarkdownEditor
+                value={watch("resolution")}
+                onChange={(val) => setValue("resolution", val, { shouldDirty: true })}
                 placeholder="How was this resolved?"
-                {...register("resolution")}
               />
             </div>
             <div>
-              <Label htmlFor="lessons_learned">Lessons Learned</Label>
-              <Textarea
-                id="lessons_learned"
-                rows={3}
+              <Label>Lessons Learned</Label>
+              <MarkdownEditor
+                value={watch("lessons_learned")}
+                onChange={(val) => setValue("lessons_learned", val, { shouldDirty: true })}
                 placeholder="What did we learn?"
-                {...register("lessons_learned")}
               />
             </div>
             <div>
-              <Label htmlFor="notes">Notes</Label>
-              <Textarea
-                id="notes"
-                rows={3}
+              <Label>Notes</Label>
+              <MarkdownEditor
+                value={watch("notes")}
+                onChange={(val) => setValue("notes", val, { shouldDirty: true })}
                 placeholder="Additional notes"
-                {...register("notes")}
+                height={150}
               />
             </div>
           </CardContent>
         </Card>
+
+        {/* Section 7: Custom Fields (edit mode only) */}
+        {isEditMode && (
+          <CustomFieldsForm
+            incidentId={id}
+            onSaveRef={handleCustomFieldsSaveRef}
+          />
+        )}
+
+        {/* Section 8: Attachments (edit mode only) */}
+        {isEditMode && <AttachmentList incidentId={id} />}
       </form>
     </div>
   );

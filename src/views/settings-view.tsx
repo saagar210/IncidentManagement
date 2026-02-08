@@ -20,6 +20,12 @@ import {
   useExportAllData,
   useImportBackup,
 } from "@/hooks/use-import";
+import {
+  useCustomFields,
+  useCreateCustomField,
+  useUpdateCustomField,
+  useDeleteCustomField,
+} from "@/hooks/use-custom-fields";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -46,6 +52,11 @@ import type {
   QuarterConfig,
   UpsertQuarterRequest,
 } from "@/types/incident";
+import type {
+  CustomFieldDefinition,
+  CreateCustomFieldRequest,
+  UpdateCustomFieldRequest,
+} from "@/types/custom-fields";
 
 // ===================== Services Tab =====================
 
@@ -771,9 +782,272 @@ function ImportDataTab() {
   );
 }
 
+// ===================== Custom Fields Tab =====================
+
+interface CustomFieldFormData {
+  name: string;
+  field_type: "text" | "number" | "select";
+  options: string;
+  display_order: number;
+}
+
+function CustomFieldsTab() {
+  const { data: fields, isLoading } = useCustomFields();
+  const createField = useCreateCustomField();
+  const updateField = useUpdateCustomField();
+  const deleteField = useDeleteCustomField();
+
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const addForm = useForm<CustomFieldFormData>({
+    defaultValues: {
+      name: "",
+      field_type: "text",
+      options: "",
+      display_order: 0,
+    },
+  });
+
+  const editForm = useForm<CustomFieldFormData>();
+
+  const handleAddSubmit = async (data: CustomFieldFormData) => {
+    const req: CreateCustomFieldRequest = {
+      name: data.name,
+      field_type: data.field_type,
+      options: data.field_type === "select" ? data.options : undefined,
+      display_order: data.display_order,
+    };
+    try {
+      await createField.mutateAsync(req);
+      addForm.reset();
+      setShowAdd(false);
+    } catch {
+      // Error handled by global mutation handler
+    }
+  };
+
+  const startEdit = (field: CustomFieldDefinition) => {
+    setEditingId(field.id);
+    editForm.reset({
+      name: field.name,
+      field_type: field.field_type,
+      options: field.options,
+      display_order: field.display_order,
+    });
+  };
+
+  const handleEditSubmit = async (data: CustomFieldFormData) => {
+    if (!editingId) return;
+    const req: UpdateCustomFieldRequest = {
+      name: data.name,
+      field_type: data.field_type,
+      options: data.field_type === "select" ? data.options : undefined,
+      display_order: data.display_order,
+    };
+    try {
+      await updateField.mutateAsync({ id: editingId, field: req });
+      setEditingId(null);
+    } catch {
+      // Error handled by global mutation handler
+    }
+  };
+
+  const handleDelete = async (field: CustomFieldDefinition) => {
+    const confirmed = window.confirm(
+      `Delete custom field "${field.name}"? Values for this field will be lost.`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteField.mutateAsync(field.id);
+    } catch {
+      // Error handled by global mutation handler
+    }
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading custom fields...</p>;
+  }
+
+  const watchedAddType = addForm.watch("field_type");
+  const watchedEditType = editForm.watch("field_type");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Custom Fields</h2>
+          <p className="text-sm text-muted-foreground">
+            Define additional fields for incidents.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAdd(true)} disabled={showAdd}>
+          <Plus className="h-4 w-4" />
+          Add Field
+        </Button>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Options (for select)</TableHead>
+            <TableHead>Order</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {showAdd && (
+            <TableRow>
+              <TableCell>
+                <Input
+                  placeholder="Field name"
+                  {...addForm.register("name", { required: true })}
+                />
+              </TableCell>
+              <TableCell>
+                <Select {...addForm.register("field_type")}>
+                  <option value="text">Text</option>
+                  <option value="number">Number</option>
+                  <option value="select">Select</option>
+                </Select>
+              </TableCell>
+              <TableCell>
+                {watchedAddType === "select" && (
+                  <Input
+                    placeholder="Comma-separated options"
+                    {...addForm.register("options")}
+                  />
+                )}
+              </TableCell>
+              <TableCell>
+                <Input
+                  type="number"
+                  className="w-20"
+                  {...addForm.register("display_order", { valueAsNumber: true })}
+                />
+              </TableCell>
+              <TableCell className="text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={addForm.handleSubmit(handleAddSubmit)}
+                    disabled={createField.isPending}
+                  >
+                    <Check className="h-4 w-4 text-green-500" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    onClick={() => {
+                      setShowAdd(false);
+                      addForm.reset();
+                    }}
+                  >
+                    <X className="h-4 w-4 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          )}
+          {fields?.map((field) =>
+            editingId === field.id ? (
+              <TableRow key={field.id}>
+                <TableCell>
+                  <Input {...editForm.register("name", { required: true })} />
+                </TableCell>
+                <TableCell>
+                  <Select {...editForm.register("field_type")}>
+                    <option value="text">Text</option>
+                    <option value="number">Number</option>
+                    <option value="select">Select</option>
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  {watchedEditType === "select" && (
+                    <Input
+                      placeholder="Comma-separated options"
+                      {...editForm.register("options")}
+                    />
+                  )}
+                </TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    className="w-20"
+                    {...editForm.register("display_order", { valueAsNumber: true })}
+                  />
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={editForm.handleSubmit(handleEditSubmit)}
+                      disabled={updateField.isPending}
+                    >
+                      <Check className="h-4 w-4 text-green-500" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => setEditingId(null)}
+                    >
+                      <X className="h-4 w-4 text-red-500" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              <TableRow key={field.id}>
+                <TableCell className="font-medium">{field.name}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">{field.field_type}</Badge>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {field.field_type === "select" ? field.options : "--"}
+                </TableCell>
+                <TableCell>{field.display_order}</TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => startEdit(field)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleDelete(field)}
+                      disabled={deleteField.isPending}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            )
+          )}
+          {(!fields || fields.length === 0) && !showAdd && (
+            <TableRow>
+              <TableCell colSpan={5} className="text-center text-muted-foreground">
+                No custom fields defined. Add one to extend incident data.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 // ===================== Settings View =====================
 
-type SettingsTab = "services" | "quarters" | "import";
+type SettingsTab = "services" | "quarters" | "custom-fields" | "import";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("services");
@@ -781,6 +1055,7 @@ export function SettingsView() {
   const tabs: { key: SettingsTab; label: string }[] = [
     { key: "services", label: "Services" },
     { key: "quarters", label: "Quarters" },
+    { key: "custom-fields", label: "Custom Fields" },
     { key: "import", label: "Import & Data" },
   ];
 
@@ -808,6 +1083,7 @@ export function SettingsView() {
 
       {activeTab === "services" && <ServicesTab />}
       {activeTab === "quarters" && <QuartersTab />}
+      {activeTab === "custom-fields" && <CustomFieldsTab />}
       {activeTab === "import" && <ImportDataTab />}
     </div>
   );

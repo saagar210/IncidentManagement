@@ -23,3 +23,14 @@ export interface DiscussionPoint {
   trigger: string;
   severity: string;
 }
+
+export interface ReportHistoryEntry {
+  id: string;
+  title: string;
+  quarter_id: string | null;
+  format: string;
+  generated_at: string;
+  file_path: string;
+  config_json: string;
+  file_size_bytes: number | null;
+}

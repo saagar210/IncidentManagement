@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Search, ChevronLeft, ChevronRight, TableIcon, GanttChart } from "lucide-react";
 import { format } from "date-fns";
 import { useIncidents } from "@/hooks/use-incidents";
 import { useActiveServices } from "@/hooks/use-services";
@@ -17,6 +17,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { IncidentTimeline } from "@/components/incidents/incident-timeline";
 import {
   SEVERITY_LEVELS,
   STATUS_OPTIONS,
@@ -60,11 +61,14 @@ function formatDate(dateStr: string): string {
   }
 }
 
+type ViewMode = "table" | "timeline";
+
 export function IncidentsView() {
   const navigate = useNavigate();
   const [searchText, setSearchText] = useState("");
   const [page, setPage] = useState(0);
   const [filters, setFilters] = useState<IncidentFilters>({});
+  const [viewMode, setViewMode] = useState<ViewMode>("table");
 
   const debouncedSearch = useDebounce(searchText, 300);
 
@@ -109,10 +113,30 @@ export function IncidentsView() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Incidents</h1>
-        <Button onClick={() => navigate("/incidents/new")}>
-          <Plus className="h-4 w-4" />
-          New Incident
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border">
+            <Button
+              variant={viewMode === "table" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("table")}
+              className="rounded-r-none"
+            >
+              <TableIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={viewMode === "timeline" ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("timeline")}
+              className="rounded-l-none"
+            >
+              <GanttChart className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button onClick={() => navigate("/incidents/new")}>
+            <Plus className="h-4 w-4" />
+            New Incident
+          </Button>
+        </div>
       </div>
 
       {/* Filter bar */}
@@ -167,17 +191,19 @@ export function IncidentsView() {
         </Select>
       </div>
 
-      {/* Table */}
+      {/* Content */}
       {isLoading ? (
         <div className="space-y-2">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-10 w-full" />
           ))}
         </div>
-      ) : pagedIncidents.length === 0 ? (
+      ) : filteredIncidents.length === 0 ? (
         <div className="flex h-64 items-center justify-center text-muted-foreground">
           <p>No incidents found. Create your first incident to get started.</p>
         </div>
+      ) : viewMode === "timeline" ? (
+        <IncidentTimeline incidents={filteredIncidents} />
       ) : (
         <Table>
           <TableHeader>
@@ -255,8 +281,8 @@ export function IncidentsView() {
         </Table>
       )}
 
-      {/* Pagination */}
-      {filteredIncidents.length > PAGE_SIZE && (
+      {/* Pagination (table mode only) */}
+      {viewMode === "table" && filteredIncidents.length > PAGE_SIZE && (
         <div className="flex items-center justify-between border-t pt-4">
           <p className="text-sm text-muted-foreground">
             Showing {page * PAGE_SIZE + 1}&ndash;

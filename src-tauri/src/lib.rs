@@ -51,12 +51,38 @@ pub fn run() {
             commands::settings::set_setting,
             commands::settings::export_all_data,
             commands::settings::import_backup,
+            // Tags
+            commands::incidents::get_incident_tags,
+            commands::incidents::set_incident_tags,
+            commands::incidents::get_all_tags,
+            // Trash / Soft Delete
+            commands::incidents::list_deleted_incidents,
+            commands::incidents::restore_incident,
+            commands::incidents::permanent_delete_incident,
+            commands::incidents::count_deleted_incidents,
+            commands::incidents::count_overdue_action_items,
+            // Custom Fields
+            commands::custom_fields::list_custom_fields,
+            commands::custom_fields::create_custom_field,
+            commands::custom_fields::update_custom_field,
+            commands::custom_fields::delete_custom_field,
+            commands::custom_fields::get_incident_custom_fields,
+            commands::custom_fields::set_incident_custom_fields,
+            // Attachments
+            commands::attachments::upload_attachment,
+            commands::attachments::list_attachments,
+            commands::attachments::delete_attachment,
             // Metrics
             commands::metrics::get_dashboard_data,
-            // Reports (Phase 3)
+            commands::metrics::get_incident_heatmap,
+            commands::metrics::get_incident_by_hour,
+            // Reports
             commands::reports::generate_report,
             commands::reports::save_report,
             commands::reports::generate_discussion_points,
+            commands::reports::list_report_history,
+            commands::reports::delete_report_history_entry,
+            commands::reports::generate_narrative,
             // Import (Phase 4)
             commands::import::parse_csv_headers,
             commands::import::preview_csv_import,

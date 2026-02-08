@@ -46,3 +46,13 @@ export interface MetricFilters {
   min_severity?: string;
   min_impact?: string;
 }
+
+export interface DayCount {
+  day: string;
+  count: number;
+}
+
+export interface HourCount {
+  hour: number;
+  count: number;
+}

@@ -1,8 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor } from "lucide-react";
+import { BarChart3, AlertTriangle, FileText, Settings, Sun, Moon, Monitor, Trash2 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { tauriInvoke } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { useTheme, type Theme } from "@/hooks/use-theme";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { NotificationCenter } from "@/components/layout/notification-center";
 
 const NAV_ITEMS = [
   { label: "Dashboard", icon: BarChart3, to: "/dashboard", shortcut: "1" },
@@ -25,6 +29,11 @@ const THEME_LABELS: Record<Theme, string> = {
 
 export function Sidebar() {
   const { theme, setTheme } = useTheme();
+  const { data: trashCount } = useQuery({
+    queryKey: ["deleted-count"],
+    queryFn: () => tauriInvoke<number>("count_deleted_incidents"),
+    staleTime: 30000,
+  });
 
   const cycleTheme = () => {
     const currentIdx = THEME_CYCLE.indexOf(theme);
@@ -65,9 +74,29 @@ export function Sidebar() {
             </kbd>
           </NavLink>
         ))}
+        <NavLink
+          to="/trash"
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+            )
+          }
+        >
+          <Trash2 className="h-4 w-4" />
+          <span className="flex-1">Trash</span>
+          {(trashCount ?? 0) > 0 && (
+            <Badge variant="secondary" className="h-5 min-w-[20px] px-1 text-[10px]">
+              {trashCount}
+            </Badge>
+          )}
+        </NavLink>
       </nav>
 
-      <div className="border-t border-sidebar-border p-3">
+      <div className="space-y-1 border-t border-sidebar-border p-3">
+        <NotificationCenter />
         <Button
           variant="ghost"
           size="sm"

@@ -1,8 +1,16 @@
 import { useState, useCallback } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { FileText, Download, Loader2, Eye, CheckSquare, Square } from "lucide-react";
+import { format } from "date-fns";
+import { FileText, Download, Loader2, Eye, CheckSquare, Square, History, Trash2, Sparkles } from "lucide-react";
 import { useQuarters } from "@/hooks/use-quarters";
-import { useGenerateReport, useSaveReport, useDiscussionPoints } from "@/hooks/use-reports";
+import {
+  useGenerateReport,
+  useSaveReport,
+  useDiscussionPoints,
+  useReportHistory,
+  useDeleteReportHistory,
+  useGenerateNarrative,
+} from "@/hooks/use-reports";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,8 +18,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { toast } from "@/components/ui/use-toast";
-import type { ReportSections, DiscussionPoint } from "@/types/reports";
+import type { ReportSections, DiscussionPoint, ReportHistoryEntry } from "@/types/reports";
 
 const DEFAULT_SECTIONS: ReportSections = {
   executive_summary: true,
@@ -54,6 +70,9 @@ export function ReportsView() {
   const { data: quarters, isLoading: quartersLoading } = useQuarters();
   const generateReport = useGenerateReport();
   const saveReport = useSaveReport();
+  const narrativeMutation = useGenerateNarrative();
+  const { data: reportHistory } = useReportHistory();
+  const deleteHistory = useDeleteReportHistory();
 
   const [selectedQuarterId, setSelectedQuarterId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -116,7 +135,12 @@ export function ReportsView() {
       });
 
       if (savePath) {
-        await saveReport.mutateAsync({ tempPath, savePath });
+        await saveReport.mutateAsync({
+          tempPath,
+          savePath,
+          title: effectiveTitle,
+          quarterId: selectedQuarterId,
+        });
         toast({
           title: "Report saved",
           description: `Report saved to ${savePath}`,
@@ -206,7 +230,35 @@ export function ReportsView() {
           </div>
 
           <div className="space-y-2">
-            <Label>Custom Introduction (optional)</Label>
+            <div className="flex items-center justify-between">
+              <Label>Custom Introduction (optional)</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!selectedQuarterId || narrativeMutation.isPending}
+                onClick={async () => {
+                  if (!selectedQuarterId) return;
+                  try {
+                    const text = await narrativeMutation.mutateAsync(selectedQuarterId);
+                    setIntroduction(text);
+                  } catch (err) {
+                    toast({
+                      title: "Narrative generation failed",
+                      description: String(err),
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                className="gap-1 text-xs"
+              >
+                {narrativeMutation.isPending ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3 w-3" />
+                )}
+                Auto-generate
+              </Button>
+            </div>
             <Textarea
               value={introduction}
               onChange={(e) => setIntroduction(e.target.value)}
@@ -326,8 +378,88 @@ export function ReportsView() {
           </CardContent>
         </Card>
       )}
+
+      {/* Report History */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <History className="h-5 w-5" />
+            Report History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {reportHistory && reportHistory.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Format</TableHead>
+                  <TableHead>Generated</TableHead>
+                  <TableHead>Size</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {reportHistory.map((entry: ReportHistoryEntry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell className="font-medium max-w-[200px] truncate">
+                      {entry.title}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">
+                        {entry.format.toUpperCase()}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-sm">
+                      {formatHistoryDate(entry.generated_at)}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {entry.file_size_bytes
+                        ? formatBytes(entry.file_size_bytes)
+                        : "--"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => {
+                          const confirmed = window.confirm(
+                            `Remove "${entry.title}" from history?`
+                          );
+                          if (confirmed) deleteHistory.mutate(entry.id);
+                        }}
+                        disabled={deleteHistory.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No reports generated yet. Generate your first report above.
+            </p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
+}
+
+function formatHistoryDate(dateStr: string): string {
+  try {
+    return format(new Date(dateStr), "MMM d, yyyy HH:mm");
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function DiscussionPointCard({

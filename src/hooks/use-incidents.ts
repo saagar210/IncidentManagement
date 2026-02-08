@@ -71,6 +71,8 @@ export function useDeleteIncident() {
       tauriInvoke<void>("delete_incident", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["deleted-count"] });
+      queryClient.invalidateQueries({ queryKey: ["deleted-incidents"] });
     },
   });
 }

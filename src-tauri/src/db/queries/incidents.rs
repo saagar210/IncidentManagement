@@ -120,11 +120,13 @@ pub async fn update_incident(
 }
 
 pub async fn delete_incident(db: &SqlitePool, id: &str) -> AppResult<()> {
-    let result = sqlx::query("DELETE FROM incidents WHERE id = ?")
-        .bind(id)
-        .execute(db)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    let result = sqlx::query(
+        "UPDATE incidents SET deleted_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND deleted_at IS NULL"
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Incident '{}' not found", id)));
@@ -132,9 +134,71 @@ pub async fn delete_incident(db: &SqlitePool, id: &str) -> AppResult<()> {
     Ok(())
 }
 
+pub async fn list_deleted_incidents(db: &SqlitePool) -> AppResult<Vec<Incident>> {
+    let rows = sqlx::query(
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NOT NULL ORDER BY i.deleted_at DESC"
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows.iter().map(parse_incident).collect())
+}
+
+pub async fn restore_incident(db: &SqlitePool, id: &str) -> AppResult<Incident> {
+    let result = sqlx::query(
+        "UPDATE incidents SET deleted_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE id = ? AND deleted_at IS NOT NULL"
+    )
+    .bind(id)
+    .execute(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("Deleted incident '{}' not found", id)));
+    }
+    get_incident_by_id(db, id).await
+}
+
+pub async fn permanent_delete_incident(db: &SqlitePool, id: &str) -> AppResult<()> {
+    let result = sqlx::query("DELETE FROM incidents WHERE id = ? AND deleted_at IS NOT NULL")
+        .bind(id)
+        .execute(db)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("Deleted incident '{}' not found", id)));
+    }
+    Ok(())
+}
+
+pub async fn purge_old_deleted(db: &SqlitePool, days: i64) -> AppResult<i64> {
+    let result = sqlx::query(
+        "DELETE FROM incidents WHERE deleted_at IS NOT NULL AND julianday('now') - julianday(deleted_at) > ?"
+    )
+    .bind(days)
+    .execute(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(result.rows_affected() as i64)
+}
+
+pub async fn count_deleted_incidents(db: &SqlitePool) -> AppResult<i64> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM incidents WHERE deleted_at IS NOT NULL"
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(count)
+}
+
 pub async fn get_incident_by_id(db: &SqlitePool, id: &str) -> AppResult<Incident> {
     let row = sqlx::query(
-        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.id = ?"
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.id = ? AND i.deleted_at IS NULL"
     )
     .bind(id)
     .fetch_optional(db)
@@ -151,7 +215,7 @@ pub async fn list_incidents(
     quarter_dates: Option<(String, String)>,
 ) -> AppResult<Vec<Incident>> {
     let mut sql = String::from(
-        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE 1=1",
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL",
     );
     let mut binds: Vec<String> = vec![];
 
@@ -226,7 +290,7 @@ pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Inc
         .replace('_', "\\_");
     let pattern = format!("%{}%", escaped);
     let rows = sqlx::query(
-        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.title LIKE ?1 ESCAPE '\\' OR i.root_cause LIKE ?1 ESCAPE '\\' OR i.resolution LIKE ?1 ESCAPE '\\' OR i.notes LIKE ?1 ESCAPE '\\' OR i.external_ref LIKE ?1 ESCAPE '\\' ORDER BY i.started_at DESC"
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL AND (i.title LIKE ?1 ESCAPE '\\' OR i.root_cause LIKE ?1 ESCAPE '\\' OR i.resolution LIKE ?1 ESCAPE '\\' OR i.notes LIKE ?1 ESCAPE '\\' OR i.external_ref LIKE ?1 ESCAPE '\\') ORDER BY i.started_at DESC"
     )
     .bind(&pattern)
     .fetch_all(db)

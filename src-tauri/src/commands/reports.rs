@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 use tauri::State;
 
+use crate::db::queries::report_history;
 use crate::error::AppError;
+use crate::models::report_history::ReportHistory;
 use crate::reports;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,9 +128,13 @@ pub async fn generate_report(
 
 #[tauri::command]
 pub async fn save_report(
+    db: State<'_, SqlitePool>,
     temp_path: String,
     save_path: String,
-) -> Result<(), AppError> {
+    title: String,
+    quarter_id: Option<String>,
+    config_json: Option<String>,
+) -> Result<ReportHistory, AppError> {
     // Validate temp_path is actually in the temp directory
     let temp_dir = std::env::temp_dir();
     let canonical_temp = std::fs::canonicalize(&temp_path)
@@ -157,10 +163,28 @@ pub async fn save_report(
         .await
         .map_err(|e| AppError::Report(format!("Failed to save report: {}", e)))?;
 
+    // Get file size
+    let metadata = tokio::fs::metadata(&save_path)
+        .await
+        .map_err(|e| AppError::Report(format!("Failed to read file metadata: {}", e)))?;
+    let file_size = metadata.len() as i64;
+
+    // Record in history
+    let history = report_history::insert_report_history(
+        &*db,
+        &title,
+        quarter_id.as_deref(),
+        "docx",
+        &save_path,
+        &config_json.unwrap_or_else(|| "{}".to_string()),
+        file_size,
+    )
+    .await?;
+
     // Clean up temp file (best-effort)
     let _ = tokio::fs::remove_file(&temp_path).await;
 
-    Ok(())
+    Ok(history)
 }
 
 #[tauri::command]
@@ -178,4 +202,84 @@ pub async fn generate_discussion_points(
             severity: p.severity,
         })
         .collect())
+}
+
+// ===================== Report History =====================
+
+#[tauri::command]
+pub async fn list_report_history(
+    db: State<'_, SqlitePool>,
+) -> Result<Vec<ReportHistory>, AppError> {
+    report_history::list_report_history(&*db).await
+}
+
+#[tauri::command]
+pub async fn delete_report_history_entry(
+    db: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), AppError> {
+    report_history::delete_report_history(&*db, &id).await
+}
+
+// ===================== Narrative Generation =====================
+
+#[tauri::command]
+pub async fn generate_narrative(
+    db: State<'_, SqlitePool>,
+    quarter_id: String,
+) -> Result<String, AppError> {
+    use crate::db::queries::metrics;
+    use crate::models::metrics::MetricFilters;
+
+    let filters = MetricFilters::default();
+    let dashboard = metrics::get_dashboard_data_for_quarter(&*db, Some(&quarter_id), &filters).await?;
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // Opening
+    parts.push(format!(
+        "During this reporting period, the team managed {} total incidents across all services.",
+        dashboard.total_incidents
+    ));
+
+    // MTTR/MTTA
+    if dashboard.mttr.value > 0.0 {
+        let mttr_h = dashboard.mttr.value / 60.0;
+        let mtta_h = dashboard.mtta.value / 60.0;
+        parts.push(format!(
+            "The mean time to resolve (MTTR) was {:.1} hours, with a mean time to acknowledge (MTTA) of {:.1} hours.",
+            mttr_h, mtta_h
+        ));
+    }
+
+    // Severity breakdown
+    let critical = dashboard.by_severity.iter()
+        .find(|s| s.category == "Critical")
+        .map(|s| s.count)
+        .unwrap_or(0);
+    let high = dashboard.by_severity.iter()
+        .find(|s| s.category == "High")
+        .map(|s| s.count)
+        .unwrap_or(0);
+    if critical > 0 || high > 0 {
+        parts.push(format!(
+            "Of these, {} were classified as Critical and {} as High severity.",
+            critical, high
+        ));
+    }
+
+    // Recurrence
+    if dashboard.recurrence_rate.value > 5.0 {
+        parts.push(format!(
+            "The recurrence rate of {:.1}% indicates recurring patterns that should be addressed.",
+            dashboard.recurrence_rate.value
+        ));
+    } else if dashboard.total_incidents > 0 {
+        parts.push(format!(
+            "The recurrence rate was {:.1}%, suggesting effective root cause resolution.",
+            dashboard.recurrence_rate.value
+        ));
+    }
+
+    Ok(parts.join(" "))
 }

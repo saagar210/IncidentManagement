@@ -120,3 +120,15 @@ pub fn format_percentage(value: f64) -> String {
 pub fn format_decimal(value: f64) -> String {
     format!("{:.1}", value)
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DayCount {
+    pub day: String,
+    pub count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourCount {
+    pub hour: i32,
+    pub count: i64,
+}

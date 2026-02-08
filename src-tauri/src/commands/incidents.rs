@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 use tauri::State;
 
-use crate::db::queries::{incidents, settings};
+use crate::db::queries::{incidents, settings, tags};
 use crate::error::AppError;
 use crate::models::incident::{
     ActionItem, CreateActionItemRequest, CreateIncidentRequest, Incident, IncidentFilters,
@@ -118,4 +118,84 @@ pub async fn list_action_items(
     incident_id: Option<String>,
 ) -> Result<Vec<ActionItem>, AppError> {
     incidents::list_action_items(&*db, incident_id.as_deref()).await
+}
+
+// Tags
+
+#[tauri::command]
+pub async fn get_incident_tags(
+    db: State<'_, SqlitePool>,
+    incident_id: String,
+) -> Result<Vec<String>, AppError> {
+    tags::get_incident_tags(&*db, &incident_id).await
+}
+
+#[tauri::command]
+pub async fn set_incident_tags(
+    db: State<'_, SqlitePool>,
+    incident_id: String,
+    tag_list: Vec<String>,
+) -> Result<Vec<String>, AppError> {
+    if tag_list.len() > 50 {
+        return Err(AppError::Validation("Too many tags (max 50)".into()));
+    }
+    for tag in &tag_list {
+        if tag.len() > 100 {
+            return Err(AppError::Validation("Tag too long (max 100 characters)".into()));
+        }
+    }
+    tags::set_incident_tags(&*db, &incident_id, &tag_list).await
+}
+
+#[tauri::command]
+pub async fn get_all_tags(
+    db: State<'_, SqlitePool>,
+) -> Result<Vec<String>, AppError> {
+    tags::get_all_tags(&*db).await
+}
+
+// Soft delete / Trash
+
+#[tauri::command]
+pub async fn list_deleted_incidents(
+    db: State<'_, SqlitePool>,
+) -> Result<Vec<Incident>, AppError> {
+    incidents::list_deleted_incidents(&*db).await
+}
+
+#[tauri::command]
+pub async fn restore_incident(
+    db: State<'_, SqlitePool>,
+    id: String,
+) -> Result<Incident, AppError> {
+    incidents::restore_incident(&*db, &id).await
+}
+
+#[tauri::command]
+pub async fn permanent_delete_incident(
+    db: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), AppError> {
+    incidents::permanent_delete_incident(&*db, &id).await
+}
+
+#[tauri::command]
+pub async fn count_deleted_incidents(
+    db: State<'_, SqlitePool>,
+) -> Result<i64, AppError> {
+    incidents::count_deleted_incidents(&*db).await
+}
+
+#[tauri::command]
+pub async fn count_overdue_action_items(
+    db: State<'_, SqlitePool>,
+) -> Result<i64, AppError> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM action_items WHERE status != 'Done' AND due_date IS NOT NULL AND due_date < strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+    )
+    .fetch_one(&*db)
+    .await
+    .map_err(|e: sqlx::Error| AppError::Database(e.to_string()))?;
+
+    Ok(count)
 }

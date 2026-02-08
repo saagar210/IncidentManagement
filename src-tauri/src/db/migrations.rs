@@ -18,6 +18,11 @@ pub async fn run_migrations(pool: &SqlitePool) -> AppResult<()> {
     let migrations: Vec<(i64, &str, &str)> = vec![
         (1, "Create core schema", include_str!("sql/001_core_schema.sql")),
         (2, "Seed default data", include_str!("sql/002_seed_data.sql")),
+        (3, "Add tags", include_str!("sql/003_tags.sql")),
+        (4, "Add custom fields", include_str!("sql/004_custom_fields.sql")),
+        (5, "Add attachments", include_str!("sql/005_attachments.sql")),
+        (6, "Add soft delete", include_str!("sql/006_soft_delete.sql")),
+        (7, "Add report history", include_str!("sql/007_report_history.sql")),
     ];
 
     for (version, description, sql) in migrations {

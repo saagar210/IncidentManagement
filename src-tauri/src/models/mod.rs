@@ -1,5 +1,7 @@
+pub mod custom_field;
 pub mod incident;
 pub mod metrics;
 pub mod priority;
 pub mod quarter;
+pub mod report_history;
 pub mod service;
