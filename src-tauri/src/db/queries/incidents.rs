@@ -477,14 +477,8 @@ pub async fn list_incidents(
 
 pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Incident>> {
     // Use FTS5 for full-text search when available, fall back to LIKE
-    // Escape FTS5 special characters and build a prefix query
-    let fts_query = query
-        .replace('"', "\"\"")
-        .split_whitespace()
-        .filter(|w| !w.is_empty())
-        .map(|w| format!("\"{}\"*", w))
-        .collect::<Vec<_>>()
-        .join(" ");
+    // Escape FTS5 special characters and build a prefix query.
+    let fts_query = build_fts_query(query);
 
     if fts_query.is_empty() {
         return Ok(vec![]);
@@ -528,19 +522,42 @@ pub async fn search_incidents_filtered(
     status: Option<&str>,
     tag: Option<&str>,
 ) -> AppResult<Vec<Incident>> {
-    // Use the same FTS5 query builder as search_incidents().
-    let fts_query = query
+    let fts_query = build_fts_query(query);
+    if fts_query.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let (fts_sql, fts_binds) =
+        build_incident_search_fts_sql(&fts_query, service_id, severity, status, tag);
+    match fetch_incidents_with_binds(db, &fts_sql, &fts_binds).await {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            let (like_sql, like_binds) =
+                build_incident_search_like_sql(query, service_id, severity, status, tag);
+            fetch_incidents_with_binds(db, &like_sql, &like_binds)
+                .await
+                .map_err(|e| AppError::Database(e.to_string()))
+        }
+    }
+}
+
+fn build_fts_query(query: &str) -> String {
+    query
         .replace('"', "\"\"")
         .split_whitespace()
         .filter(|w| !w.is_empty())
         .map(|w| format!("\"{}\"*", w))
         .collect::<Vec<_>>()
-        .join(" ");
+        .join(" ")
+}
 
-    if fts_query.is_empty() {
-        return Ok(vec![]);
-    }
-
+fn build_incident_search_fts_sql(
+    fts_query: &str,
+    service_id: Option<&str>,
+    severity: Option<&str>,
+    status: Option<&str>,
+    tag: Option<&str>,
+) -> (String, Vec<String>) {
     let mut sql = String::from(
         "SELECT i.*, s.name as service_name \
          FROM incidents i \
@@ -548,9 +565,50 @@ pub async fn search_incidents_filtered(
          WHERE i.deleted_at IS NULL \
            AND i.rowid IN (SELECT rowid FROM incidents_fts WHERE incidents_fts MATCH ?)",
     );
-    let mut binds: Vec<String> = Vec::new();
-    binds.push(fts_query.clone());
+    let mut binds: Vec<String> = vec![fts_query.to_string()];
+    append_incident_search_filters(&mut sql, &mut binds, service_id, severity, status, tag);
+    sql.push_str(" ORDER BY i.started_at DESC");
+    (sql, binds)
+}
 
+fn build_incident_search_like_sql(
+    query: &str,
+    service_id: Option<&str>,
+    severity: Option<&str>,
+    status: Option<&str>,
+    tag: Option<&str>,
+) -> (String, Vec<String>) {
+    let escaped = query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    let pattern = format!("%{}%", escaped);
+
+    let mut sql = String::from(
+        "SELECT i.*, s.name as service_name \
+         FROM incidents i \
+         LEFT JOIN services s ON i.service_id = s.id \
+         WHERE i.deleted_at IS NULL \
+           AND (i.title LIKE ? ESCAPE '\\' \
+                OR i.root_cause LIKE ? ESCAPE '\\' \
+                OR i.resolution LIKE ? ESCAPE '\\' \
+                OR i.notes LIKE ? ESCAPE '\\' \
+                OR i.external_ref LIKE ? ESCAPE '\\')",
+    );
+    let mut binds: Vec<String> = vec![pattern.clone(), pattern.clone(), pattern.clone(), pattern.clone(), pattern];
+    append_incident_search_filters(&mut sql, &mut binds, service_id, severity, status, tag);
+    sql.push_str(" ORDER BY i.started_at DESC");
+    (sql, binds)
+}
+
+fn append_incident_search_filters(
+    sql: &mut String,
+    binds: &mut Vec<String>,
+    service_id: Option<&str>,
+    severity: Option<&str>,
+    status: Option<&str>,
+    tag: Option<&str>,
+) {
     if let Some(sid) = service_id {
         sql.push_str(" AND i.service_id = ?");
         binds.push(sid.to_string());
@@ -564,77 +622,24 @@ pub async fn search_incidents_filtered(
         binds.push(st.to_string());
     }
     if let Some(t) = tag {
-        sql.push_str(" AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)");
+        sql.push_str(
+            " AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)",
+        );
         binds.push(t.to_string());
     }
+}
 
-    sql.push_str(" ORDER BY i.started_at DESC");
-
-    let mut q = sqlx::query(&sql);
-    for b in &binds {
+async fn fetch_incidents_with_binds(
+    db: &SqlitePool,
+    sql: &str,
+    binds: &[String],
+) -> Result<Vec<Incident>, sqlx::Error> {
+    let mut q = sqlx::query(sql);
+    for b in binds {
         q = q.bind(b);
     }
-    let fts_result = q.fetch_all(db).await;
-    match fts_result {
-        Ok(rows) => Ok(rows.iter().map(parse_incident).collect()),
-        Err(_) => {
-            // Fallback to LIKE search if the FTS5 table doesn't exist yet.
-            let escaped = query
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_");
-            let pattern = format!("%{}%", escaped);
-
-            let mut like_sql = String::from(
-                "SELECT i.*, s.name as service_name \
-                 FROM incidents i \
-                 LEFT JOIN services s ON i.service_id = s.id \
-                 WHERE i.deleted_at IS NULL \
-                   AND (i.title LIKE ? ESCAPE '\\' \
-                        OR i.root_cause LIKE ? ESCAPE '\\' \
-                        OR i.resolution LIKE ? ESCAPE '\\' \
-                        OR i.notes LIKE ? ESCAPE '\\' \
-                        OR i.external_ref LIKE ? ESCAPE '\\')",
-            );
-
-            let mut like_binds: Vec<String> = Vec::new();
-            for _ in 0..5 {
-                like_binds.push(pattern.clone());
-            }
-
-            if let Some(sid) = service_id {
-                like_sql.push_str(" AND i.service_id = ?");
-                like_binds.push(sid.to_string());
-            }
-            if let Some(sev) = severity {
-                like_sql.push_str(" AND i.severity = ?");
-                like_binds.push(sev.to_string());
-            }
-            if let Some(st) = status {
-                like_sql.push_str(" AND i.status = ?");
-                like_binds.push(st.to_string());
-            }
-            if let Some(t) = tag {
-                like_sql.push_str(
-                    " AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)",
-                );
-                like_binds.push(t.to_string());
-            }
-
-            like_sql.push_str(" ORDER BY i.started_at DESC");
-
-            let mut like_q = sqlx::query(&like_sql);
-            for b in &like_binds {
-                like_q = like_q.bind(b);
-            }
-            let rows = like_q
-                .fetch_all(db)
-                .await
-                .map_err(|e| AppError::Database(e.to_string()))?;
-
-            Ok(rows.iter().map(parse_incident).collect())
-        }
-    }
+    let rows = q.fetch_all(db).await?;
+    Ok(rows.iter().map(parse_incident).collect())
 }
 
 pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -> AppResult<()> {
@@ -1015,6 +1020,26 @@ mod tests {
         }
     }
 
+    async fn insert_tagged_incident(
+        pool: &sqlx::SqlitePool,
+        service_id: &str,
+        id: &str,
+        status: &str,
+        title: &str,
+        started_at: &str,
+        detected_at: &str,
+        tag: &str,
+    ) {
+        let mut req = make_create_request(service_id, status);
+        req.title = title.into();
+        req.started_at = started_at.into();
+        req.detected_at = detected_at.into();
+        insert_incident(pool, id, &req).await.expect("insert incident");
+        tags::set_incident_tags(pool, id, &[tag.to_string()])
+            .await
+            .expect("tag incident");
+    }
+
     async fn seed_incident_with_action_item(
         pool: &sqlx::SqlitePool,
         service_id: &str,
@@ -1165,52 +1190,41 @@ mod tests {
     async fn search_and_list_can_filter_by_tag_and_other_fields() {
         let (_dir, pool, service_id) = setup_db().await;
 
-        let mut inc1 = make_create_request(&service_id, "Active");
-        inc1.title = "Slack global outage".into();
-        inc1.started_at = "2026-01-01T10:00:00Z".into();
-        inc1.detected_at = "2026-01-01T10:01:00Z".into();
-        insert_incident(&pool, "inc-fts-1", &inc1)
-            .await
-            .expect("insert inc1");
-        tags::set_incident_tags(&pool, "inc-fts-1", &["external".to_string()])
-            .await
-            .expect("tag inc1");
-
-        let mut inc2 = make_create_request(&service_id, "Resolved");
-        inc2.title = "Slack degraded performance".into();
-        inc2.started_at = "2026-01-02T10:00:00Z".into();
-        inc2.detected_at = "2026-01-02T10:01:00Z".into();
-        insert_incident(&pool, "inc-fts-2", &inc2)
-            .await
-            .expect("insert inc2");
-        tags::set_incident_tags(&pool, "inc-fts-2", &["internal".to_string()])
-            .await
-            .expect("tag inc2");
-
-        let results = search_incidents_filtered(
+        insert_tagged_incident(
             &pool,
-            "slack",
-            Some(&service_id),
-            None,
-            Some("Active"),
-            Some("external"),
+            &service_id,
+            "inc-fts-1",
+            "Active",
+            "Slack global outage",
+            "2026-01-01T10:00:00Z",
+            "2026-01-01T10:01:00Z",
+            "external",
         )
-        .await
-        .expect("search filtered");
+        .await;
+        insert_tagged_incident(
+            &pool,
+            &service_id,
+            "inc-fts-2",
+            "Resolved",
+            "Slack degraded performance",
+            "2026-01-02T10:00:00Z",
+            "2026-01-02T10:01:00Z",
+            "internal",
+        )
+        .await;
+
+        let results = search_incidents_filtered(&pool, "slack", Some(&service_id), None, Some("Active"), Some("external"))
+            .await
+            .expect("search filtered");
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "inc-fts-1");
 
-        let none = search_incidents_filtered(
-            &pool,
-            "slack",
-            Some("svc-does-not-exist"),
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("search with mismatched service");
-        assert!(none.is_empty());
+        assert!(
+            search_incidents_filtered(&pool, "slack", Some("svc-does-not-exist"), None, None, None)
+                .await
+                .expect("search with mismatched service")
+                .is_empty()
+        );
 
         let mut f = crate::models::incident::IncidentFilters::default();
         f.tag = Some("internal".to_string());

@@ -2,18 +2,18 @@ import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Search, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
-import { useActiveServices } from "@/hooks/use-services";
-import { usePirReviewInsights } from "@/hooks/use-pir-review";
-import { tauriInvoke } from "@/lib/tauri";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
-import { SavedFilterBar } from "@/components/incidents/saved-filter-bar";
-import { SEVERITY_COLORS, SEVERITY_LEVELS, STATUS_OPTIONS } from "@/lib/constants";
-import type { SeverityLevel } from "@/lib/constants";
-import type { Incident } from "@/types/incident";
-import type { IncidentFilters } from "@/types/incident";
+import { useActiveServices } from "../hooks/use-services";
+import { usePirReviewInsights } from "../hooks/use-pir-review";
+import { tauriInvoke } from "../lib/tauri";
+import { Input } from "../components/ui/input";
+import { Badge } from "../components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Select } from "../components/ui/select";
+import { SavedFilterBar } from "../components/incidents/saved-filter-bar";
+import { SEVERITY_COLORS, SEVERITY_LEVELS, STATUS_OPTIONS } from "../lib/constants";
+import type { SeverityLevel } from "../lib/constants";
+import type { Incident } from "../types/incident";
+import type { IncidentFilters } from "../types/incident";
 
 const EMPTY_FILTERS: IncidentFilters = {};
 const LEARNINGS_FILTERS_KEY = "learnings.filters.v1";
@@ -25,6 +25,100 @@ function pickLearningsFilters(filters: IncidentFilters): IncidentFilters {
     status: filters.status,
     tag: filters.tag,
   };
+}
+
+function LearningsResults(props: {
+  isLoading: boolean;
+  debouncedQuery: string;
+  results: Incident[] | undefined;
+  onSelectIncident: (id: string) => void;
+}) {
+  if (props.isLoading) {
+    return <p className="text-sm text-muted-foreground">Searching...</p>;
+  }
+
+  if (props.debouncedQuery.length < 2) {
+    return (
+      <div className="rounded-lg border border-dashed p-8 text-center">
+        <BookOpen className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
+        <p className="text-sm text-muted-foreground">
+          Type at least 2 characters to search across all incidents and learnings.
+        </p>
+      </div>
+    );
+  }
+
+  if (!props.results) {
+    return null;
+  }
+
+  if (props.results.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No results found for &ldquo;{props.debouncedQuery}&rdquo;
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {props.results.length} result{props.results.length !== 1 ? "s" : ""} found
+      </p>
+      {props.results.map((inc) => (
+        <Card
+          key={inc.id}
+          className="cursor-pointer transition-colors hover:bg-accent/50"
+          onClick={() => props.onSelectIncident(inc.id)}
+        >
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                {inc.title}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={SEVERITY_COLORS[inc.severity as SeverityLevel] ?? ""}
+                >
+                  {inc.severity}
+                </Badge>
+                <Badge variant="outline">{inc.status}</Badge>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{inc.service_name}</p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {inc.root_cause && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Root Cause:
+                </span>
+                <p className="line-clamp-2 text-sm">{inc.root_cause}</p>
+              </div>
+            )}
+            {inc.lessons_learned && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Lessons:
+                </span>
+                <p className="line-clamp-2 text-sm">{inc.lessons_learned}</p>
+              </div>
+            )}
+            {inc.resolution && (
+              <div>
+                <span className="text-xs font-medium text-muted-foreground">
+                  Resolution:
+                </span>
+                <p className="line-clamp-2 text-sm">{inc.resolution}</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
 }
 
 export function LearningsView() {
@@ -250,90 +344,12 @@ export function LearningsView() {
         </Card>
       )}
 
-      {/* Results */}
-      {isLoading && (
-        <p className="text-sm text-muted-foreground">Searching...</p>
-      )}
-
-      {debouncedQuery.length >= 2 && results && results.length === 0 && (
-        <p className="text-sm text-muted-foreground">
-          No results found for &ldquo;{debouncedQuery}&rdquo;
-        </p>
-      )}
-
-      {results && results.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            {results.length} result{results.length !== 1 ? "s" : ""} found
-          </p>
-          {results.map((inc) => (
-            <Card
-              key={inc.id}
-              className="cursor-pointer transition-colors hover:bg-accent/50"
-              onClick={() => navigate(`/incidents/${inc.id}`)}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="flex items-center gap-2 text-sm">
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    {inc.title}
-                  </CardTitle>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className={
-                        SEVERITY_COLORS[inc.severity as SeverityLevel] ?? ""
-                      }
-                    >
-                      {inc.severity}
-                    </Badge>
-                    <Badge variant="outline">{inc.status}</Badge>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {inc.service_name}
-                </p>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {inc.root_cause && (
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Root Cause:
-                    </span>
-                    <p className="line-clamp-2 text-sm">{inc.root_cause}</p>
-                  </div>
-                )}
-                {inc.lessons_learned && (
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Lessons:
-                    </span>
-                    <p className="line-clamp-2 text-sm">{inc.lessons_learned}</p>
-                  </div>
-                )}
-                {inc.resolution && (
-                  <div>
-                    <span className="text-xs font-medium text-muted-foreground">
-                      Resolution:
-                    </span>
-                    <p className="line-clamp-2 text-sm">{inc.resolution}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {debouncedQuery.length < 2 && (
-        <div className="rounded-lg border border-dashed p-8 text-center">
-          <BookOpen className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-          <p className="text-sm text-muted-foreground">
-            Type at least 2 characters to search across all incidents and
-            learnings.
-          </p>
-        </div>
-      )}
+      <LearningsResults
+        isLoading={isLoading}
+        debouncedQuery={debouncedQuery}
+        results={results}
+        onSelectIncident={(id) => navigate(`/incidents/${id}`)}
+      />
     </div>
   );
 }

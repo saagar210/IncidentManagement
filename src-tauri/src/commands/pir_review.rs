@@ -1,9 +1,11 @@
 use sqlx::{Row, SqlitePool};
-use std::io::Cursor;
+use std::io::{Cursor, Write};
 use tauri::State;
 
 use crate::db::queries::{incidents, postmortems, tags};
 use crate::error::AppError;
+use crate::models::incident::{ActionItem, Incident};
+use crate::models::postmortem::{ContributingFactor, Postmortem};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct PirBrief {
@@ -39,48 +41,38 @@ fn md_escape_inline(text: &str) -> String {
     text.replace('\n', " ").trim().to_string()
 }
 
-#[tauri::command]
-pub async fn generate_pir_brief_markdown(
-    db: State<'_, SqlitePool>,
-    incident_id: String,
-) -> Result<PirBrief, AppError> {
-    let inc = incidents::get_incident_by_id(&*db, &incident_id).await?;
-    let pm = postmortems::get_postmortem_by_incident(&*db, &incident_id).await?;
-    let factors = postmortems::list_contributing_factors(&*db, &incident_id).await?;
-    let action_items = incidents::list_action_items(&*db, Some(&incident_id)).await?;
-    let tag_list = tags::get_incident_tags(&*db, &incident_id).await?;
-
-    let mut out = String::new();
-    out.push_str(&format!("# PIR Brief: {}\n\n", md_escape_inline(&inc.title)));
-
+fn append_summary_section(out: &mut String, inc: &Incident, pm: Option<&Postmortem>) {
     out.push_str("## Summary\n\n");
+
     let summary_md = pm
-        .as_ref()
         .map(|p| extract_markdown(&p.content))
         .unwrap_or_default();
     if !summary_md.trim().is_empty() {
         out.push_str(summary_md.trim());
         out.push_str("\n\n");
-    } else {
-        let fallback = [
-            (!inc.root_cause.trim().is_empty()).then_some(("Root Cause", inc.root_cause.as_str())),
-            (!inc.resolution.trim().is_empty()).then_some(("Resolution", inc.resolution.as_str())),
-            (!inc.notes.trim().is_empty()).then_some(("Notes", inc.notes.as_str())),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|(h, v)| format!("**{}:** {}", h, md_escape_inline(v)))
-        .collect::<Vec<_>>()
-        .join("\n\n");
-
-        if fallback.is_empty() {
-            out.push_str("_No summary content recorded._\n\n");
-        } else {
-            out.push_str(&fallback);
-            out.push_str("\n\n");
-        }
+        return;
     }
 
+    let fallback = [
+        (!inc.root_cause.trim().is_empty()).then_some(("Root Cause", inc.root_cause.as_str())),
+        (!inc.resolution.trim().is_empty()).then_some(("Resolution", inc.resolution.as_str())),
+        (!inc.notes.trim().is_empty()).then_some(("Notes", inc.notes.as_str())),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|(h, v)| format!("**{}:** {}", h, md_escape_inline(v)))
+    .collect::<Vec<_>>()
+    .join("\n\n");
+
+    if fallback.is_empty() {
+        out.push_str("_No summary content recorded._\n\n");
+    } else {
+        out.push_str(&fallback);
+        out.push_str("\n\n");
+    }
+}
+
+fn append_impact_section(out: &mut String, inc: &Incident) {
     out.push_str("## Impact\n\n");
     out.push_str(&format!(
         "- Service: {}\n- Severity: {}\n- Impact: {}\n- Priority: {}\n- Status: {}\n",
@@ -92,10 +84,11 @@ pub async fn generate_pir_brief_markdown(
     ));
     out.push_str(&format!(
         "- Tickets submitted: {}\n- Affected users: {}\n\n",
-        inc.tickets_submitted,
-        inc.affected_users
+        inc.tickets_submitted, inc.affected_users
     ));
+}
 
+fn append_timeline_section(out: &mut String, inc: &Incident) {
     out.push_str("## Timeline\n\n");
     out.push_str(&format!("- Started: {}\n", inc.started_at));
     out.push_str(&format!("- Detected: {}\n", inc.detected_at));
@@ -115,26 +108,38 @@ pub async fn generate_pir_brief_markdown(
         out.push_str(&format!("- Resolved: {}\n", v));
     }
     out.push_str("\n");
+}
 
+fn append_contributing_factors_section(
+    out: &mut String,
+    factors: &[ContributingFactor],
+) {
     out.push_str("## Contributing Factors\n\n");
     if factors.is_empty() {
         out.push_str("_No contributing factors recorded._\n\n");
-    } else {
-        for cf in &factors {
-            let root = if cf.is_root { " (root)" } else { "" };
-            out.push_str(&format!(
-                "- **{}**{}: {}\n",
-                md_escape_inline(&cf.category),
-                root,
-                md_escape_inline(&cf.description)
-            ));
-        }
-        out.push_str("\n");
+        return;
     }
 
+    for cf in factors {
+        let root = if cf.is_root { " (root)" } else { "" };
+        out.push_str(&format!(
+            "- **{}**{}: {}\n",
+            md_escape_inline(&cf.category),
+            root,
+            md_escape_inline(&cf.description)
+        ));
+    }
+    out.push_str("\n");
+}
+
+fn append_action_items_section(
+    out: &mut String,
+    action_items: &[ActionItem],
+    pm: Option<&Postmortem>,
+) {
     out.push_str("## Action Items\n\n");
     if !action_items.is_empty() {
-        for ai in &action_items {
+        for ai in action_items {
             let due = ai.due_date.as_deref().unwrap_or("N/A");
             let owner = if ai.owner.trim().is_empty() { "Unassigned" } else { ai.owner.as_str() };
             let completed = ai.completed_at.as_deref().unwrap_or("");
@@ -153,14 +158,14 @@ pub async fn generate_pir_brief_markdown(
                 out.push_str("  - Validated: yes\n");
             }
             if !ai.outcome_notes.trim().is_empty() {
-                out.push_str(&format!(
-                    "  - Outcome: {}\n",
-                    md_escape_inline(&ai.outcome_notes)
-                ));
+                out.push_str(&format!("  - Outcome: {}\n", md_escape_inline(&ai.outcome_notes)));
             }
         }
         out.push_str("\n");
-    } else if let Some(pm) = pm.as_ref() {
+        return;
+    }
+
+    if let Some(pm) = pm {
         if pm.no_action_items_justified {
             out.push_str("No action items were justified for this incident.\n\n");
             if !pm.no_action_items_justification.trim().is_empty() {
@@ -175,7 +180,9 @@ pub async fn generate_pir_brief_markdown(
     } else {
         out.push_str("_No action items recorded._\n\n");
     }
+}
 
+fn append_lessons_section(out: &mut String, inc: &Incident) {
     out.push_str("## Lessons Learned\n\n");
     if inc.lessons_learned.trim().is_empty() {
         out.push_str("_No lessons learned recorded._\n\n");
@@ -183,15 +190,44 @@ pub async fn generate_pir_brief_markdown(
         out.push_str(inc.lessons_learned.trim());
         out.push_str("\n\n");
     }
+}
 
+fn append_references_section(
+    out: &mut String,
+    inc: &Incident,
+    tags: &[String],
+) {
     out.push_str("## References\n\n");
     if !inc.external_ref.trim().is_empty() {
         out.push_str(&format!("- External ref: {}\n", md_escape_inline(&inc.external_ref)));
     }
-    if !tag_list.is_empty() {
-        out.push_str(&format!("- Tags: {}\n", tag_list.join(", ")));
+    if !tags.is_empty() {
+        out.push_str(&format!("- Tags: {}\n", tags.join(", ")));
     }
     out.push_str(&format!("- Incident ID: {}\n", inc.id));
+}
+
+#[tauri::command]
+pub async fn generate_pir_brief_markdown(
+    db: State<'_, SqlitePool>,
+    incident_id: String,
+) -> Result<PirBrief, AppError> {
+    let inc = incidents::get_incident_by_id(&*db, &incident_id).await?;
+    let pm = postmortems::get_postmortem_by_incident(&*db, &incident_id).await?;
+    let factors = postmortems::list_contributing_factors(&*db, &incident_id).await?;
+    let action_items = incidents::list_action_items(&*db, Some(&incident_id)).await?;
+    let tag_list = tags::get_incident_tags(&*db, &incident_id).await?;
+
+    let mut out = String::new();
+    out.push_str(&format!("# PIR Brief: {}\n\n", md_escape_inline(&inc.title)));
+
+    append_summary_section(&mut out, &inc, pm.as_ref());
+    append_impact_section(&mut out, &inc);
+    append_timeline_section(&mut out, &inc);
+    append_contributing_factors_section(&mut out, &factors);
+    append_action_items_section(&mut out, &action_items, pm.as_ref());
+    append_lessons_section(&mut out, &inc);
+    append_references_section(&mut out, &inc, &tag_list);
 
     Ok(PirBrief { markdown: out })
 }
@@ -206,28 +242,26 @@ pub async fn generate_pir_brief_file(
     let md = brief.markdown;
 
     let file_ext = if format.to_lowercase() == "pdf" { "pdf" } else { "docx" };
-    let temp_dir = std::env::temp_dir();
-    let filename = format!(
-        "pir_brief_{}.{}",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S"),
-        file_ext
-    );
-    let temp_path = temp_dir.join(&filename);
+    let suffix = format!(".{}", file_ext);
+    let mut tmp = tempfile::Builder::new()
+        .prefix("pir_brief_")
+        .suffix(&suffix)
+        .tempfile()
+        .map_err(|e| AppError::Report(format!("Failed to create temp file: {}", e)))?;
 
-    if file_ext == "pdf" {
-        let bytes = build_pdf_from_markdown(&md)?;
-        tokio::fs::write(&temp_path, &bytes)
-            .await
-            .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
+    let bytes = if file_ext == "pdf" {
+        build_pdf_from_markdown(&md)?
     } else {
-        let bytes = build_docx_from_markdown(&md)?;
-        tokio::fs::write(&temp_path, &bytes)
-            .await
-            .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
-    }
+        build_docx_from_markdown(&md)?
+    };
 
-    temp_path
-        .to_str()
+    tmp.write_all(&bytes)
+        .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
+
+    let (_file, path) = tmp
+        .keep()
+        .map_err(|e| AppError::Report(format!("Failed to persist temp file: {}", e)))?;
+    path.to_str()
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::Report("Invalid temp path encoding".into()))
 }
@@ -244,13 +278,9 @@ fn build_docx_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
     Ok(buf)
 }
 
-fn build_pdf_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
-    use genpdf::elements::{Break, Paragraph};
+fn load_pdf_font_family() -> Result<genpdf::fonts::FontFamily<genpdf::fonts::FontData>, AppError> {
     use genpdf::fonts;
-    use genpdf::{Document, SimplePageDecorator};
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
-
-    let font_family = fonts::from_files("", "LiberationSans", None)
+    fonts::from_files("", "LiberationSans", None)
         .or_else(|_| fonts::from_files("/Library/Fonts", "Arial", None))
         .or_else(|_| fonts::from_files("/System/Library/Fonts/Supplemental", "Arial", None))
         .map_err(|e| {
@@ -258,25 +288,26 @@ fn build_pdf_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
                 "Failed to load PDF fonts: {}. Install Liberation Sans or Arial.",
                 e
             ))
-        })?;
+        })
+}
 
-    let mut doc = Document::new(font_family);
-    let mut decorator = SimplePageDecorator::new();
-    decorator.set_margins(20);
-    doc.set_page_decorator(decorator);
+fn markdown_to_paragraphs(md: &str) -> Vec<String> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
-    // Basic markdown -> plain-ish paragraphs (enough for sharing).
     let parser = Parser::new_ext(md.trim(), Options::empty());
+    let mut out: Vec<String> = Vec::new();
     let mut text_buf = String::new();
+
+    let flush = |buf: &mut String, out: &mut Vec<String>| {
+        if !buf.trim().is_empty() {
+            out.push(buf.trim().to_string());
+        }
+        buf.clear();
+    };
+
     for event in parser {
         match event {
-            Event::Start(Tag::Heading { .. }) => {
-                if !text_buf.trim().is_empty() {
-                    doc.push(Paragraph::new(text_buf.trim()));
-                    doc.push(Break::new(0.3));
-                    text_buf.clear();
-                }
-            }
+            Event::Start(Tag::Heading { .. }) => flush(&mut text_buf, &mut out),
             Event::Text(t) => text_buf.push_str(&t),
             Event::Code(c) => {
                 text_buf.push('`');
@@ -285,24 +316,33 @@ fn build_pdf_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
             }
             Event::SoftBreak | Event::HardBreak => text_buf.push(' '),
             Event::Start(Tag::Item) => {
-                if !text_buf.trim().is_empty() {
-                    doc.push(Paragraph::new(text_buf.trim()));
-                    text_buf.clear();
-                }
+                flush(&mut text_buf, &mut out);
                 text_buf.push_str("\u{2022}  ");
             }
             Event::End(TagEnd::Paragraph) | Event::End(TagEnd::Item) | Event::End(TagEnd::Heading(_)) => {
-                if !text_buf.trim().is_empty() {
-                    doc.push(Paragraph::new(text_buf.trim()));
-                    doc.push(Break::new(0.2));
-                }
-                text_buf.clear();
+                flush(&mut text_buf, &mut out);
             }
             _ => {}
         }
     }
-    if !text_buf.trim().is_empty() {
-        doc.push(Paragraph::new(text_buf.trim()));
+    flush(&mut text_buf, &mut out);
+    out
+}
+
+fn build_pdf_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
+    use genpdf::elements::{Break, Paragraph};
+    use genpdf::{Document, SimplePageDecorator};
+    let font_family = load_pdf_font_family()?;
+
+    let mut doc = Document::new(font_family);
+    let mut decorator = SimplePageDecorator::new();
+    decorator.set_margins(20);
+    doc.set_page_decorator(decorator);
+
+    // Basic markdown -> plain-ish paragraphs (enough for sharing).
+    for p in markdown_to_paragraphs(md) {
+        doc.push(Paragraph::new(p));
+        doc.push(Break::new(0.2));
     }
 
     let mut buf: Vec<u8> = Vec::new();

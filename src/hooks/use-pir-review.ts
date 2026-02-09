@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { tauriInvoke } from "@/lib/tauri";
+import { tauriInvoke } from "../lib/tauri";
 
 type PirBrief = {
   markdown: string;
@@ -8,14 +8,14 @@ type PirBrief = {
 export function usePirBriefMarkdown() {
   return useMutation({
     mutationFn: (incidentId: string) =>
-      tauriInvoke<PirBrief>("generate_pir_brief_markdown", { incidentId }),
+      tauriInvoke<PirBrief>("generate_pir_brief_markdown", { incidentId })
   });
 }
 
 export function useGeneratePirBriefFile() {
   return useMutation({
     mutationFn: ({ incidentId, format }: { incidentId: string; format: "docx" | "pdf" }) =>
-      tauriInvoke<string>("generate_pir_brief_file", { incidentId, format }),
+      tauriInvoke<string>("generate_pir_brief_file", { incidentId, format })
   });
 }
 
@@ -31,7 +31,6 @@ export function usePirReviewInsights() {
   return useQuery({
     queryKey: ["pir-review-insights"],
     queryFn: () => tauriInvoke<PirReviewInsights>("get_pir_review_insights"),
-    staleTime: 60_000,
+    staleTime: 60000
   });
 }
-
