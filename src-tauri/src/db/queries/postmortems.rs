@@ -1,9 +1,49 @@
 use sqlx::{Row, SqlitePool};
 use crate::error::{AppError, AppResult};
+use crate::db::queries::incidents;
 use crate::models::postmortem::{
     ContributingFactor, CreateContributingFactorRequest, CreatePostmortemRequest,
     Postmortem, PostmortemTemplate, UpdatePostmortemRequest,
 };
+
+fn extract_markdown(content: &str) -> String {
+    // Content is stored as either raw markdown or a JSON object: {"markdown": "..."}.
+    // For readiness checks we only care whether the user has provided meaningful text.
+    if content.trim().is_empty() || content.trim() == "{}" {
+        return String::new();
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
+        if let Some(md) = v.get("markdown").and_then(|m| m.as_str()) {
+            return md.to_string();
+        }
+    }
+    content.to_string()
+}
+
+async fn compute_finalization_missing_items(db: &SqlitePool, incident_id: &str, content: &str) -> AppResult<Vec<String>> {
+    let mut missing: Vec<String> = Vec::new();
+
+    let md = extract_markdown(content);
+    if md.trim().is_empty() {
+        missing.push("Post-mortem content (markdown)".to_string());
+    }
+
+    let factors = list_contributing_factors(db, incident_id).await?;
+    if factors.is_empty() {
+        missing.push("At least one contributing factor".to_string());
+    }
+
+    // Action items can exist in the normalized action_items table and/or the legacy
+    // incident.action_items field. Either is acceptable for readiness.
+    let action_items = incidents::list_action_items(db, Some(incident_id)).await?;
+    let incident = incidents::get_incident_by_id(db, incident_id).await?;
+    let legacy_action_items = incident.action_items.trim();
+    if action_items.is_empty() && legacy_action_items.is_empty() {
+        missing.push("At least one action item (or a documented justification)".to_string());
+    }
+
+    Ok(missing)
+}
 
 // --- Contributing Factors ---
 
@@ -127,6 +167,16 @@ pub async fn update_postmortem(db: &SqlitePool, id: &str, req: &UpdatePostmortem
     let status = req.status.as_ref().unwrap_or(&existing.status);
     let reminder_at = req.reminder_at.as_ref().or(existing.reminder_at.as_ref());
 
+    if status == "final" && existing.status != "final" {
+        let missing = compute_finalization_missing_items(db, &existing.incident_id, content).await?;
+        if !missing.is_empty() {
+            return Err(AppError::Validation(format!(
+                "Cannot finalize post-mortem: missing {}",
+                missing.join(", ")
+            )));
+        }
+    }
+
     let completed_at = if status == "final" && existing.status != "final" {
         Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string())
     } else {
@@ -188,5 +238,169 @@ fn parse_postmortem(row: &sqlx::sqlite::SqliteRow) -> Postmortem {
         completed_at: row.get("completed_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{create_postmortem, update_postmortem, create_contributing_factor};
+    use crate::db::migrations::run_migrations;
+    use crate::db::queries::incidents;
+    use crate::error::AppError;
+    use crate::models::incident::{CreateActionItemRequest, CreateIncidentRequest};
+    use crate::models::postmortem::{CreateContributingFactorRequest, CreatePostmortemRequest, UpdatePostmortemRequest};
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::str::FromStr;
+    use tempfile::tempdir;
+
+    async fn setup_db() -> sqlx::SqlitePool {
+        let dir = tempdir().expect("tempdir");
+        let db_path = dir.path().join("postmortems-query-tests.db");
+        let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+        let options = SqliteConnectOptions::from_str(&db_url)
+            .expect("sqlite url")
+            .journal_mode(SqliteJournalMode::Wal)
+            .pragma("foreign_keys", "ON")
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+        run_migrations(&pool).await.expect("migrations");
+        pool
+    }
+
+    fn seed_incident() -> CreateIncidentRequest {
+        CreateIncidentRequest {
+            title: "Slack outage".to_string(),
+            service_id: "svc-slack".to_string(),
+            severity: "High".to_string(),
+            impact: "High".to_string(),
+            status: "Post-Mortem".to_string(),
+            started_at: "2026-02-01T00:00:00Z".to_string(),
+            detected_at: "2026-02-01T00:00:00Z".to_string(),
+            acknowledged_at: None,
+            first_response_at: None,
+            mitigation_started_at: None,
+            responded_at: None,
+            resolved_at: None,
+            root_cause: "".to_string(),
+            resolution: "".to_string(),
+            tickets_submitted: 0,
+            affected_users: 0,
+            is_recurring: false,
+            recurrence_of: None,
+            lessons_learned: "".to_string(),
+            action_items: "".to_string(),
+            external_ref: "".to_string(),
+            notes: "".to_string(),
+        }
+    }
+
+    async fn add_action_item(db: &sqlx::SqlitePool, incident_id: &str) {
+        incidents::insert_action_item(
+            db,
+            "ai-1",
+            &CreateActionItemRequest {
+                incident_id: incident_id.to_string(),
+                title: "Write vendor outage playbook".to_string(),
+                description: "".to_string(),
+                status: "Open".to_string(),
+                owner: "IT".to_string(),
+                due_date: None,
+            },
+        )
+        .await
+        .expect("insert action item");
+    }
+
+    async fn add_contributing_factor(db: &sqlx::SqlitePool, incident_id: &str) {
+        create_contributing_factor(
+            db,
+            "cf-1",
+            &CreateContributingFactorRequest {
+                incident_id: incident_id.to_string(),
+                category: "External".to_string(),
+                description: "Slack had a global service disruption".to_string(),
+                is_root: true,
+            },
+        )
+        .await
+        .expect("insert contributing factor");
+    }
+
+    async fn create_blank_postmortem(db: &sqlx::SqlitePool, incident_id: &str, pm_id: &str) -> super::Postmortem {
+        create_postmortem(
+            db,
+            pm_id,
+            &CreatePostmortemRequest {
+                incident_id: incident_id.to_string(),
+                template_id: None,
+                content: "{}".to_string(),
+            },
+        )
+        .await
+        .expect("create postmortem")
+    }
+
+    #[tokio::test]
+    async fn cannot_finalize_without_minimum_review_content() {
+        let db = setup_db().await;
+
+        let incident_id = "inc-1";
+        incidents::insert_incident(&db, incident_id, &seed_incident())
+            .await
+            .expect("insert incident");
+
+        let pm = create_blank_postmortem(&db, incident_id, "pm-1").await;
+
+        let err = update_postmortem(
+            &db,
+            &pm.id,
+            &UpdatePostmortemRequest {
+                content: Some("{\"markdown\":\"\"}".to_string()),
+                status: Some("final".to_string()),
+                reminder_at: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            AppError::Validation(msg) => {
+                assert!(msg.contains("Cannot finalize post-mortem"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn can_finalize_when_minimum_review_content_is_present() {
+        let db = setup_db().await;
+
+        let incident_id = "inc-2";
+        incidents::insert_incident(&db, incident_id, &seed_incident())
+            .await
+            .expect("insert incident");
+
+        add_action_item(&db, incident_id).await;
+        add_contributing_factor(&db, incident_id).await;
+        let pm = create_blank_postmortem(&db, incident_id, "pm-2").await;
+
+        let updated = update_postmortem(
+            &db,
+            &pm.id,
+            &UpdatePostmortemRequest {
+                content: Some("{\"markdown\":\"# Summary\\n\\nImpact was material.\"}".to_string()),
+                status: Some("final".to_string()),
+                reminder_at: None,
+            },
+        )
+        .await
+        .expect("finalize");
+
+        assert_eq!(updated.status, "final");
+        assert!(updated.completed_at.is_some());
     }
 }
