@@ -86,6 +86,7 @@ export interface IncidentFilters {
   severity?: string;
   impact?: string;
   status?: string;
+  tag?: string;
   quarter_id?: string;
   date_from?: string;
   date_to?: string;

@@ -424,6 +424,10 @@ pub async fn list_incidents(
         sql.push_str(" AND i.status = ?");
         binds.push(status.clone());
     }
+    if let Some(ref tag) = filters.tag {
+        sql.push_str(" AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)");
+        binds.push(tag.clone());
+    }
 
     // Date range from quarter or explicit dates
     if let Some((start, end)) = quarter_dates {
@@ -514,6 +518,68 @@ pub async fn search_incidents(db: &SqlitePool, query: &str) -> AppResult<Vec<Inc
             Ok(rows.iter().map(parse_incident).collect())
         }
     }
+}
+
+pub async fn search_incidents_filtered(
+    db: &SqlitePool,
+    query: &str,
+    service_id: Option<&str>,
+    severity: Option<&str>,
+    status: Option<&str>,
+    tag: Option<&str>,
+) -> AppResult<Vec<Incident>> {
+    // Use the same FTS5 query builder as search_incidents().
+    let fts_query = query
+        .replace('"', "\"\"")
+        .split_whitespace()
+        .filter(|w| !w.is_empty())
+        .map(|w| format!("\"{}\"*", w))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if fts_query.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut sql = String::from(
+        "SELECT i.*, s.name as service_name \
+         FROM incidents i \
+         LEFT JOIN services s ON i.service_id = s.id \
+         WHERE i.deleted_at IS NULL \
+           AND i.rowid IN (SELECT rowid FROM incidents_fts WHERE incidents_fts MATCH ?)",
+    );
+    let mut binds: Vec<String> = Vec::new();
+    binds.push(fts_query.clone());
+
+    if let Some(sid) = service_id {
+        sql.push_str(" AND i.service_id = ?");
+        binds.push(sid.to_string());
+    }
+    if let Some(sev) = severity {
+        sql.push_str(" AND i.severity = ?");
+        binds.push(sev.to_string());
+    }
+    if let Some(st) = status {
+        sql.push_str(" AND i.status = ?");
+        binds.push(st.to_string());
+    }
+    if let Some(t) = tag {
+        sql.push_str(" AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)");
+        binds.push(t.to_string());
+    }
+
+    sql.push_str(" ORDER BY i.started_at DESC");
+
+    let mut q = sqlx::query(&sql);
+    for b in &binds {
+        q = q.bind(b);
+    }
+    let rows = q
+        .fetch_all(db)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows.iter().map(parse_incident).collect())
 }
 
 pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -> AppResult<()> {
@@ -830,8 +896,12 @@ fn parse_action_item(row: &sqlx::sqlite::SqliteRow) -> ActionItem {
 
 #[cfg(test)]
 mod tests {
-    use super::{bulk_update_status, get_incident_by_id, insert_incident, insert_action_item, update_action_item};
+    use super::{
+        bulk_update_status, get_incident_by_id, insert_action_item, insert_incident, list_incidents,
+        search_incidents_filtered, update_action_item,
+    };
     use crate::db::migrations::run_migrations;
+    use crate::db::queries::tags;
     use crate::models::incident::{CreateActionItemRequest, CreateIncidentRequest, UpdateActionItemRequest};
     use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
     use std::str::FromStr;
@@ -1034,5 +1104,63 @@ mod tests {
 
         let cleared = update_ai(&pool, "ai-test-2", None, Some(false)).await;
         assert!(cleared.validated_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn search_and_list_can_filter_by_tag_and_other_fields() {
+        let (_dir, pool, service_id) = setup_db().await;
+
+        let mut inc1 = make_create_request(&service_id, "Active");
+        inc1.title = "Slack global outage".into();
+        inc1.started_at = "2026-01-01T10:00:00Z".into();
+        inc1.detected_at = "2026-01-01T10:01:00Z".into();
+        insert_incident(&pool, "inc-fts-1", &inc1)
+            .await
+            .expect("insert inc1");
+        tags::set_incident_tags(&pool, "inc-fts-1", &["external".to_string()])
+            .await
+            .expect("tag inc1");
+
+        let mut inc2 = make_create_request(&service_id, "Resolved");
+        inc2.title = "Slack degraded performance".into();
+        inc2.started_at = "2026-01-02T10:00:00Z".into();
+        inc2.detected_at = "2026-01-02T10:01:00Z".into();
+        insert_incident(&pool, "inc-fts-2", &inc2)
+            .await
+            .expect("insert inc2");
+        tags::set_incident_tags(&pool, "inc-fts-2", &["internal".to_string()])
+            .await
+            .expect("tag inc2");
+
+        let results = search_incidents_filtered(
+            &pool,
+            "slack",
+            Some(&service_id),
+            None,
+            Some("Active"),
+            Some("external"),
+        )
+        .await
+        .expect("search filtered");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, "inc-fts-1");
+
+        let none = search_incidents_filtered(
+            &pool,
+            "slack",
+            Some("svc-does-not-exist"),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("search with mismatched service");
+        assert!(none.is_empty());
+
+        let mut f = crate::models::incident::IncidentFilters::default();
+        f.tag = Some("internal".to_string());
+        let listed = list_incidents(&pool, &f, None).await.expect("list filtered");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, "inc-fts-2");
     }
 }

@@ -8,6 +8,7 @@ pub mod export;
 pub mod incidents;
 pub mod import;
 pub mod metrics;
+pub mod pir_review;
 pub mod postmortems;
 pub mod reports;
 pub mod roles;

@@ -7,6 +7,8 @@ import {
   usePostmortemTemplates,
   usePostmortemReadiness,
 } from "@/hooks/use-postmortems";
+import { usePirBriefMarkdown, useGeneratePirBriefFile } from "@/hooks/use-pir-review";
+import { useSaveReport } from "@/hooks/use-reports";
 import { useAiPostmortemDraft, useAiStatus } from "@/hooks/use-ai";
 import { useContributingFactors } from "@/hooks/use-postmortems";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,7 @@ import { MarkdownEditor } from "@/components/ui/markdown-editor";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
+import { save } from "@tauri-apps/plugin-dialog";
 
 interface PostmortemEditorProps {
   incidentId: string;
@@ -54,6 +57,9 @@ export function PostmortemEditor({
   const createPm = useCreatePostmortem();
   const updatePm = useUpdatePostmortem();
   const aiDraft = useAiPostmortemDraft();
+  const pirBrief = usePirBriefMarkdown();
+  const generatePirFile = useGeneratePirBriefFile();
+  const saveReport = useSaveReport();
 
   const [content, setContent] = useState("");
   const [pmStatus, setPmStatus] = useState<"draft" | "review" | "final">(
@@ -211,6 +217,54 @@ export function PostmortemEditor({
       });
     }
   };
+
+  const handleCopyPirBrief = useCallback(async () => {
+    try {
+      const brief = await pirBrief.mutateAsync(incidentId);
+      await navigator.clipboard.writeText(brief.markdown);
+      toast({ title: "PIR brief copied" });
+    } catch (err) {
+      toast({
+        title: "Failed to copy PIR brief",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  }, [incidentId, pirBrief]);
+
+  const handleExportPirBrief = useCallback(
+    async (format: "docx" | "pdf") => {
+      try {
+        const tempPath = await generatePirFile.mutateAsync({ incidentId, format });
+        const ext = format;
+        const filterName = format === "pdf" ? "PDF Document" : "Word Document";
+        const safeTitle = title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 80);
+
+        const savePath = await save({
+          defaultPath: `${safeTitle}_PIR_Brief.${ext}`,
+          filters: [{ name: filterName, extensions: [ext] }],
+        });
+
+        if (!savePath) return;
+
+        await saveReport.mutateAsync({
+          tempPath,
+          savePath,
+          title: `PIR Brief - ${title}`,
+          quarterId: null,
+          configJson: JSON.stringify({ kind: "pir_brief", incident_id: incidentId, format }),
+        });
+        toast({ title: "PIR brief exported", description: `Saved to ${savePath}` });
+      } catch (err) {
+        toast({
+          title: "Failed to export PIR brief",
+          description: String(err),
+          variant: "destructive",
+        });
+      }
+    },
+    [generatePirFile, incidentId, saveReport, title]
+  );
 
   // No PM yet — show create button
   if (!existingPm) {
@@ -372,6 +426,30 @@ export function PostmortemEditor({
         </div>
 
         <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleCopyPirBrief}
+            disabled={pirBrief.isPending}
+          >
+            Copy PIR Brief
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleExportPirBrief("docx")}
+            disabled={generatePirFile.isPending || saveReport.isPending}
+          >
+            Export DOCX
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleExportPirBrief("pdf")}
+            disabled={generatePirFile.isPending || saveReport.isPending}
+          >
+            Export PDF
+          </Button>
           {aiStatus?.available && (
             <Button
               size="sm"

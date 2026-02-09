@@ -41,6 +41,7 @@ pub fn run() {
             commands::incidents::get_incident,
             commands::incidents::list_incidents,
             commands::incidents::search_incidents,
+            commands::incidents::search_incidents_filtered,
             commands::incidents::bulk_update_status,
             commands::incidents::bulk_delete_incidents,
             // Action items
@@ -77,6 +78,10 @@ pub fn run() {
             commands::incidents::permanent_delete_incident,
             commands::incidents::count_deleted_incidents,
             commands::incidents::count_overdue_action_items,
+            // PIR review helpers
+            commands::pir_review::generate_pir_brief_markdown,
+            commands::pir_review::generate_pir_brief_file,
+            commands::pir_review::get_pir_review_insights,
             // Custom Fields
             commands::custom_fields::list_custom_fields,
             commands::custom_fields::create_custom_field,

@@ -2,18 +2,39 @@ import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Search, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { useActiveServices } from "@/hooks/use-services";
 import { tauriInvoke } from "@/lib/tauri";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select } from "@/components/ui/select";
+import { SavedFilterBar } from "@/components/incidents/saved-filter-bar";
 import { SEVERITY_COLORS } from "@/lib/constants";
 import type { SeverityLevel } from "@/lib/constants";
 import type { Incident } from "@/types/incident";
+import type { IncidentFilters } from "@/types/incident";
+
+const EMPTY_FILTERS: IncidentFilters = {};
+
+function pickLearningsFilters(filters: IncidentFilters): IncidentFilters {
+  return {
+    service_id: filters.service_id,
+    severity: filters.severity,
+    status: filters.status,
+    tag: filters.tag,
+  };
+}
 
 export function LearningsView() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [filters, setFilters] = useState<IncidentFilters>(EMPTY_FILTERS);
+  const { data: services } = useActiveServices();
+  const { data: allTags } = useQuery({
+    queryKey: ["all-tags"],
+    queryFn: () => tauriInvoke<string[]>("get_all_tags"),
+  });
 
   // Debounce search
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -26,10 +47,14 @@ export function LearningsView() {
   };
 
   const { data: results, isLoading } = useQuery({
-    queryKey: ["learnings-search", debouncedQuery],
+    queryKey: ["learnings-search", debouncedQuery, filters],
     queryFn: () =>
-      tauriInvoke<Incident[]>("search_incidents", {
+      tauriInvoke<Incident[]>("search_incidents_filtered", {
         query: debouncedQuery,
+        service_id: filters.service_id ?? null,
+        severity: filters.severity ?? null,
+        status: filters.status ?? null,
+        tag: filters.tag ?? null,
       }),
     enabled: debouncedQuery.length >= 2,
   });
@@ -56,6 +81,86 @@ export function LearningsView() {
           className="pl-9"
         />
       </div>
+
+      {/* Filters + Saved Filters */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select
+          value={filters.service_id ?? ""}
+          onChange={(e) =>
+            setFilters((f) => ({
+              ...f,
+              service_id: e.target.value || undefined,
+            }))
+          }
+          className="w-56"
+        >
+          <option value="">All Services</option>
+          {services?.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          value={filters.severity ?? ""}
+          onChange={(e) =>
+            setFilters((f) => ({
+              ...f,
+              severity: e.target.value || undefined,
+            }))
+          }
+          className="w-40"
+        >
+          <option value="">All Severity</option>
+          {["Critical", "High", "Medium", "Low"].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          value={filters.status ?? ""}
+          onChange={(e) =>
+            setFilters((f) => ({
+              ...f,
+              status: e.target.value || undefined,
+            }))
+          }
+          className="w-44"
+        >
+          <option value="">All Status</option>
+          {["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </Select>
+
+        <Select
+          value={filters.tag ?? ""}
+          onChange={(e) =>
+            setFilters((f) => ({
+              ...f,
+              tag: e.target.value || undefined,
+            }))
+          }
+          className="w-44"
+        >
+          <option value="">All Tags</option>
+          {allTags?.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </Select>
+      </div>
+
+      <SavedFilterBar
+        currentFilters={filters}
+        onApplyFilter={(f) => setFilters(pickLearningsFilters(f))}
+      />
 
       {/* Results */}
       {isLoading && (

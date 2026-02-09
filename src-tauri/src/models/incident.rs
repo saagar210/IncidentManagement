@@ -114,6 +114,7 @@ pub struct IncidentFilters {
     pub severity: Option<String>,
     pub impact: Option<String>,
     pub status: Option<String>,
+    pub tag: Option<String>,
     pub quarter_id: Option<String>,
     pub date_from: Option<String>,
     pub date_to: Option<String>,
