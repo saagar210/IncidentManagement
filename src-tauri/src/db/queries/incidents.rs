@@ -917,6 +917,29 @@ mod tests {
         .expect("insert action item");
     }
 
+    async fn update_ai(
+        pool: &sqlx::SqlitePool,
+        action_item_id: &str,
+        status: Option<&str>,
+        validated: Option<bool>,
+    ) -> super::ActionItem {
+        update_action_item(
+            pool,
+            action_item_id,
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: status.map(|s| s.to_string()),
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated,
+            },
+        )
+        .await
+        .expect("update action item")
+    }
+
     #[tokio::test]
     async fn bulk_update_status_rejects_invalid_transition() {
         let (_dir, pool, service_id) = setup_db().await;
@@ -1003,55 +1026,13 @@ mod tests {
         let (_dir, pool, service_id) = setup_db().await;
         seed_incident_with_action_item(&pool, &service_id, "inc-ai-2", "ai-test-2").await;
 
-        let done = update_action_item(
-            &pool,
-            "ai-test-2",
-            &UpdateActionItemRequest {
-                title: None,
-                description: None,
-                status: Some("Done".to_string()),
-                owner: None,
-                due_date: None,
-                outcome_notes: None,
-                validated: None,
-            },
-        )
-        .await
-        .expect("mark done");
+        let done = update_ai(&pool, "ai-test-2", Some("Done"), None).await;
         assert!(done.completed_at.is_some());
 
-        let validated = update_action_item(
-            &pool,
-            "ai-test-2",
-            &UpdateActionItemRequest {
-                title: None,
-                description: None,
-                status: None,
-                owner: None,
-                due_date: None,
-                outcome_notes: None,
-                validated: Some(true),
-            },
-        )
-        .await
-        .expect("validate");
+        let validated = update_ai(&pool, "ai-test-2", None, Some(true)).await;
         assert!(validated.validated_at.is_some());
 
-        let cleared = update_action_item(
-            &pool,
-            "ai-test-2",
-            &UpdateActionItemRequest {
-                title: None,
-                description: None,
-                status: None,
-                owner: None,
-                due_date: None,
-                outcome_notes: None,
-                validated: Some(false),
-            },
-        )
-        .await
-        .expect("clear validation");
+        let cleared = update_ai(&pool, "ai-test-2", None, Some(false)).await;
         assert!(cleared.validated_at.is_none());
     }
 }
