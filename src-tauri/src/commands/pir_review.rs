@@ -132,41 +132,35 @@ fn append_contributing_factors_section(
     out.push_str("\n");
 }
 
-fn append_action_items_section(
-    out: &mut String,
-    action_items: &[ActionItem],
-    pm: Option<&Postmortem>,
-) {
-    out.push_str("## Action Items\n\n");
-    if !action_items.is_empty() {
-        for ai in action_items {
-            let due = ai.due_date.as_deref().unwrap_or("N/A");
-            let owner = if ai.owner.trim().is_empty() { "Unassigned" } else { ai.owner.as_str() };
-            let completed = ai.completed_at.as_deref().unwrap_or("");
-            let validated = if ai.validated_at.is_some() { "Validated" } else { "" };
-            out.push_str(&format!(
-                "- **{}** [{}] (Owner: {}, Due: {})\n",
-                md_escape_inline(&ai.title),
-                md_escape_inline(&ai.status),
-                md_escape_inline(owner),
-                md_escape_inline(due)
-            ));
+fn append_action_items_list(out: &mut String, action_items: &[ActionItem]) {
+    for ai in action_items {
+        let due = ai.due_date.as_deref().unwrap_or("N/A");
+        let owner = if ai.owner.trim().is_empty() { "Unassigned" } else { ai.owner.as_str() };
+        out.push_str(&format!(
+            "- **{}** [{}] (Owner: {}, Due: {})\n",
+            md_escape_inline(&ai.title),
+            md_escape_inline(&ai.status),
+            md_escape_inline(owner),
+            md_escape_inline(due)
+        ));
+        if let Some(completed) = ai.completed_at.as_deref() {
             if !completed.is_empty() {
                 out.push_str(&format!("  - Completed: {}\n", completed));
             }
-            if !validated.is_empty() {
-                out.push_str("  - Validated: yes\n");
-            }
-            if !ai.outcome_notes.trim().is_empty() {
-                out.push_str(&format!("  - Outcome: {}\n", md_escape_inline(&ai.outcome_notes)));
-            }
         }
-        out.push_str("\n");
-        return;
+        if ai.validated_at.is_some() {
+            out.push_str("  - Validated: yes\n");
+        }
+        if !ai.outcome_notes.trim().is_empty() {
+            out.push_str(&format!("  - Outcome: {}\n", md_escape_inline(&ai.outcome_notes)));
+        }
     }
+    out.push_str("\n");
+}
 
-    if let Some(pm) = pm {
-        if pm.no_action_items_justified {
+fn append_action_items_none(out: &mut String, pm: Option<&Postmortem>) {
+    match pm {
+        Some(pm) if pm.no_action_items_justified => {
             out.push_str("No action items were justified for this incident.\n\n");
             if !pm.no_action_items_justification.trim().is_empty() {
                 out.push_str(&format!(
@@ -174,12 +168,19 @@ fn append_action_items_section(
                     md_escape_inline(&pm.no_action_items_justification)
                 ));
             }
-        } else {
-            out.push_str("_No action items recorded._\n\n");
         }
-    } else {
-        out.push_str("_No action items recorded._\n\n");
+        Some(_) => out.push_str("_No action items recorded._\n\n"),
+        None => out.push_str("_No action items recorded._\n\n"),
     }
+}
+
+fn append_action_items_section(out: &mut String, action_items: &[ActionItem], pm: Option<&Postmortem>) {
+    out.push_str("## Action Items\n\n");
+    if !action_items.is_empty() {
+        append_action_items_list(out, action_items);
+        return;
+    }
+    append_action_items_none(out, pm);
 }
 
 fn append_lessons_section(out: &mut String, inc: &Incident) {
@@ -212,11 +213,18 @@ pub async fn generate_pir_brief_markdown(
     db: State<'_, SqlitePool>,
     incident_id: String,
 ) -> Result<PirBrief, AppError> {
-    let inc = incidents::get_incident_by_id(&*db, &incident_id).await?;
-    let pm = postmortems::get_postmortem_by_incident(&*db, &incident_id).await?;
-    let factors = postmortems::list_contributing_factors(&*db, &incident_id).await?;
-    let action_items = incidents::list_action_items(&*db, Some(&incident_id)).await?;
-    let tag_list = tags::get_incident_tags(&*db, &incident_id).await?;
+    generate_pir_brief_markdown_impl(&*db, &incident_id).await
+}
+
+async fn generate_pir_brief_markdown_impl(
+    db: &SqlitePool,
+    incident_id: &str,
+) -> Result<PirBrief, AppError> {
+    let inc = incidents::get_incident_by_id(db, incident_id).await?;
+    let pm = postmortems::get_postmortem_by_incident(db, incident_id).await?;
+    let factors = postmortems::list_contributing_factors(db, incident_id).await?;
+    let action_items = incidents::list_action_items(db, Some(incident_id)).await?;
+    let tag_list = tags::get_incident_tags(db, incident_id).await?;
 
     let mut out = String::new();
     out.push_str(&format!("# PIR Brief: {}\n\n", md_escape_inline(&inc.title)));
