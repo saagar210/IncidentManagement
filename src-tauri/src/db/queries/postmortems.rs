@@ -471,4 +471,72 @@ mod tests {
         assert_eq!(updated.status, "final");
         assert!(updated.completed_at.is_some());
     }
+
+    #[tokio::test]
+    async fn can_finalize_with_no_action_items_when_justified_and_explained() {
+        let db = setup_db().await;
+
+        let incident_id = "inc-3";
+        incidents::insert_incident(&db, incident_id, &seed_incident())
+            .await
+            .expect("insert incident");
+
+        add_contributing_factor(&db, incident_id).await;
+        let pm = create_blank_postmortem(&db, incident_id, "pm-3").await;
+
+        let updated = update_postmortem(
+            &db,
+            &pm.id,
+            &UpdatePostmortemRequest {
+                content: Some("{\"markdown\":\"# Summary\\n\\nVendor outage.\"}".to_string()),
+                status: Some("final".to_string()),
+                reminder_at: None,
+                no_action_items_justified: Some(true),
+                no_action_items_justification: Some(
+                    "External vendor outage; no internal process or system changes identified."
+                        .to_string(),
+                ),
+            },
+        )
+        .await
+        .expect("finalize");
+
+        assert_eq!(updated.status, "final");
+        assert!(updated.completed_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn cannot_finalize_with_no_action_items_when_justified_but_missing_justification() {
+        let db = setup_db().await;
+
+        let incident_id = "inc-4";
+        incidents::insert_incident(&db, incident_id, &seed_incident())
+            .await
+            .expect("insert incident");
+
+        add_contributing_factor(&db, incident_id).await;
+        let pm = create_blank_postmortem(&db, incident_id, "pm-4").await;
+
+        let err = update_postmortem(
+            &db,
+            &pm.id,
+            &UpdatePostmortemRequest {
+                content: Some("{\"markdown\":\"# Summary\\n\\nVendor outage.\"}".to_string()),
+                status: Some("final".to_string()),
+                reminder_at: None,
+                no_action_items_justified: Some(true),
+                no_action_items_justification: Some("   ".to_string()),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            AppError::Validation(msg) => {
+                assert!(msg.contains("Cannot finalize post-mortem"));
+                assert!(msg.contains("No action items justification"));
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+    }
 }
