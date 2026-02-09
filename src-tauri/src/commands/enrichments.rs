@@ -1,15 +1,12 @@
 use sqlx::SqlitePool;
 use tauri::State;
-
 use base64::Engine;
 use sha2::{Digest, Sha256};
-
 use crate::ai::{self, OllamaState};
 use crate::db::queries::{enrichment_jobs, incident_enrichments, incidents, postmortems, stakeholder_updates, provenance};
 use crate::error::AppError;
 use crate::models::stakeholder_update::CreateStakeholderUpdateRequest;
 use crate::models::postmortem::{CreatePostmortemRequest, UpdatePostmortemRequest, CreateContributingFactorRequest};
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RunEnrichmentCmd {
     pub job_type: String,
@@ -201,15 +198,6 @@ pub async fn run_incident_enrichment(
 
     job = enrichment_jobs::get_job(&*db, &job.id).await?.ok_or_else(|| AppError::Database("Job disappeared".into()))?;
     Ok(job)
-}
-
-#[tauri::command]
-pub async fn accept_enrichment_job(
-    db: State<'_, SqlitePool>,
-    req: AcceptEnrichmentCmd,
-) -> Result<(), AppError> {
-    accept_job(&*db, &req.job_id).await?;
-    Ok(())
 }
 
 async fn accept_executive_summary(
@@ -530,4 +518,13 @@ mod tests {
         .expect("select provenance");
         assert_eq!(prov_count, 1);
     }
+}
+
+#[tauri::command]
+pub async fn accept_enrichment_job(
+    db: State<'_, SqlitePool>,
+    req: AcceptEnrichmentCmd,
+) -> Result<(), AppError> {
+    accept_job(&*db, &req.job_id).await?;
+    Ok(())
 }

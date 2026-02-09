@@ -20,15 +20,6 @@ pub async fn create_timeline_event(
     timeline_events::create_timeline_event(&*db, &req).await
 }
 
-#[tauri::command]
-pub async fn delete_timeline_event(
-    db: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), AppError> {
-    timeline_events::delete_timeline_event(&*db, &id).await?;
-    Ok(())
-}
-
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TimelineImportResult {
     pub created: i64,
@@ -99,6 +90,15 @@ pub async fn import_timeline_events_from_paste(
         skipped,
         errors,
     })
+}
+
+#[tauri::command]
+pub async fn delete_timeline_event(
+    db: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), AppError> {
+    timeline_events::delete_timeline_event(&*db, &id).await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

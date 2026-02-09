@@ -93,15 +93,6 @@ pub async fn upsert_quarter_override(
 }
 
 #[tauri::command]
-pub async fn delete_quarter_override(
-    db: State<'_, SqlitePool>,
-    id: String,
-) -> Result<(), AppError> {
-    quarter_finalization::delete_override(&*db, &id).await?;
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn finalize_quarter(
     db: State<'_, SqlitePool>,
     req: FinalizeQuarterCmd,
@@ -240,4 +231,13 @@ fn top_notable_incidents(incs: &[crate::models::incident::Incident], n: usize) -
         bd.cmp(&ad).then_with(|| a.id.cmp(&b.id))
     });
     v.into_iter().take(n).map(|i| i.id.clone()).collect()
+}
+
+#[tauri::command]
+pub async fn delete_quarter_override(
+    db: State<'_, SqlitePool>,
+    id: String,
+) -> Result<(), AppError> {
+    quarter_finalization::delete_override(&*db, &id).await?;
+    Ok(())
 }

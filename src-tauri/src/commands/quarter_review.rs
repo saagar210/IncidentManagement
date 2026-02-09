@@ -28,30 +28,29 @@ fn is_empty(s: &str) -> bool {
     s.trim().is_empty()
 }
 
-fn incident_missing_required_fields(inc: &Incident) -> Vec<&'static str> {
-    let mut missing = Vec::new();
+fn incident_missing_required_fields(inc: &Incident) -> bool {
     if is_empty(&inc.title) {
-        missing.push("title");
+        return true;
     }
     if is_empty(&inc.service_id) {
-        missing.push("service_id");
+        return true;
     }
     if is_empty(&inc.severity) {
-        missing.push("severity");
+        return true;
     }
     if is_empty(&inc.impact) {
-        missing.push("impact");
+        return true;
     }
     if is_empty(&inc.status) {
-        missing.push("status");
+        return true;
     }
     if is_empty(&inc.started_at) {
-        missing.push("started_at");
+        return true;
     }
     if is_empty(&inc.detected_at) {
-        missing.push("detected_at");
+        return true;
     }
-    return missing;
+    false
 }
 
 fn incident_has_timestamp_ordering_issue(inc: &Incident) -> bool {
@@ -103,7 +102,7 @@ fn analyze_quarter_incidents(
     for inc in incs {
         let mut ok = true;
 
-        if !incident_missing_required_fields(inc).is_empty() {
+        if incident_missing_required_fields(inc) {
             missing_required.push(inc.id.clone());
             ok = false;
         }
