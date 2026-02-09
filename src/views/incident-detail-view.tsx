@@ -128,6 +128,9 @@ export function IncidentDetailView() {
   const updateMutation = useUpdateIncident();
   const deleteMutation = useDeleteIncident();
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<
+    "details" | "analysis" | "actions" | "postmortem" | "activity"
+  >("details");
 
   // Tags
   const [tags, setTags] = useState<string[]>([]);
@@ -361,7 +364,12 @@ export function IncidentDetailView() {
 
       {/* Tabbed Form */}
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Tabs defaultValue="details">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) =>
+            setActiveTab(v as "details" | "analysis" | "actions" | "postmortem" | "activity")
+          }
+        >
           <TabsList className="w-full justify-start">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="analysis">Analysis</TabsTrigger>
@@ -687,7 +695,9 @@ export function IncidentDetailView() {
             <TabsContent value="postmortem" className="space-y-6">
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <div className="space-y-6 lg:col-span-2">
-                  <ContributingFactorsForm incidentId={id} />
+                  <div id="pir-contributing-factors">
+                    <ContributingFactorsForm incidentId={id} />
+                  </div>
                   <PostmortemEditor
                     incidentId={id}
                     title={watch("title")}
@@ -696,6 +706,7 @@ export function IncidentDetailView() {
                     rootCause={watch("root_cause")}
                     resolution={watch("resolution")}
                     lessons={watch("lessons_learned")}
+                    onNavigateToTab={(tab) => setActiveTab(tab)}
                   />
                 </div>
                 <div className="space-y-4">

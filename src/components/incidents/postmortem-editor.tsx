@@ -10,7 +10,6 @@ import {
 import { useAiPostmortemDraft, useAiStatus } from "@/hooks/use-ai";
 import { useContributingFactors } from "@/hooks/use-postmortems";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
@@ -26,6 +25,9 @@ interface PostmortemEditorProps {
   rootCause: string;
   resolution: string;
   lessons: string;
+  onNavigateToTab?: (
+    tab: "details" | "analysis" | "actions" | "postmortem" | "activity"
+  ) => void;
 }
 
 const PM_STATUS_COLORS: Record<string, string> = {
@@ -42,6 +44,7 @@ export function PostmortemEditor({
   rootCause,
   resolution,
   lessons,
+  onNavigateToTab,
 }: PostmortemEditorProps) {
   const { data: existingPm } = usePostmortemByIncident(incidentId);
   const { data: templates } = usePostmortemTemplates();
@@ -71,7 +74,13 @@ export function PostmortemEditor({
       } catch {
         setContent(existingPm.content === "{}" ? "" : existingPm.content);
       }
-      setPmStatus(existingPm.status);
+      setPmStatus(
+        existingPm.status === "final"
+          ? "final"
+          : existingPm.status === "review"
+            ? "review"
+            : "draft"
+      );
       setNoActionItemsJustified(!!existingPm.no_action_items_justified);
       setNoActionItemsJustification(
         existingPm.no_action_items_justification ?? ""
@@ -120,6 +129,60 @@ export function PostmortemEditor({
     existingPm,
     noActionItemsJustification,
     noActionItemsJustified,
+    pmStatus,
+    readiness,
+    updatePm,
+  ]);
+
+  const handleFinalize = useCallback(async () => {
+    if (!existingPm) return;
+    try {
+      // Step 1: persist current content/exception fields without changing to final.
+      await updatePm.mutateAsync({
+        id: existingPm.id,
+        req: {
+          content: JSON.stringify({ markdown: contentRef.current }),
+          status: pmStatus,
+          no_action_items_justified: noActionItemsJustified,
+          no_action_items_justification: noActionItemsJustification,
+        },
+      });
+
+      // Step 2: re-check readiness against the persisted state.
+      const r = await readiness.refetch();
+      const data = r.data;
+      if (!data || !data.can_finalize) {
+        const first = data?.missing?.[0];
+        toast({
+          title: "Not ready to finalize",
+          description: "Complete the missing items in the checklist.",
+          variant: "destructive",
+        });
+        if (first?.destination) onNavigateToTab?.(first.destination);
+        return;
+      }
+
+      // Step 3: finalize.
+      await updatePm.mutateAsync({
+        id: existingPm.id,
+        req: {
+          status: "final",
+        },
+      });
+      readiness.refetch();
+      toast({ title: "Post-mortem finalized" });
+    } catch (err) {
+      toast({
+        title: "Failed to finalize",
+        description: String(err),
+        variant: "destructive",
+      });
+    }
+  }, [
+    existingPm,
+    noActionItemsJustification,
+    noActionItemsJustified,
+    onNavigateToTab,
     pmStatus,
     readiness,
     updatePm,
@@ -200,17 +263,22 @@ export function PostmortemEditor({
             >
               {pmStatus}
             </Badge>
-            <Select
-              value={pmStatus}
-              onChange={(e) =>
-                setPmStatus(e.target.value as "draft" | "review" | "final")
-              }
-              className="h-7 w-24 text-xs"
-            >
-              <option value="draft">Draft</option>
-              <option value="review">Review</option>
-              <option value="final">Final</option>
-            </Select>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant={pmStatus === "draft" ? "default" : "outline"}
+                onClick={() => setPmStatus("draft")}
+              >
+                Draft
+              </Button>
+              <Button
+                size="sm"
+                variant={pmStatus === "review" ? "default" : "outline"}
+                onClick={() => setPmStatus("review")}
+              >
+                Review
+              </Button>
+            </div>
           </div>
         </div>
       </CardHeader>
@@ -232,7 +300,40 @@ export function PostmortemEditor({
                   </div>
                   <ul className="list-disc pl-5">
                     {readiness.data.missing.map((m) => (
-                      <li key={m}>{m}</li>
+                      <li key={m.code}>
+                        <button
+                          type="button"
+                          className="text-left underline-offset-2 hover:underline"
+                          onClick={() => {
+                            if (m.destination === "actions") {
+                              onNavigateToTab?.("actions");
+                              return;
+                            }
+
+                            if (m.code === "CONTRIBUTING_FACTORS") {
+                              document
+                                .getElementById("pir-contributing-factors")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              return;
+                            }
+
+                            if (m.code === "POSTMORTEM_MARKDOWN") {
+                              document
+                                .getElementById("pir-postmortem-markdown")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              return;
+                            }
+
+                            if (m.code === "ACTION_ITEMS_JUSTIFICATION") {
+                              document
+                                .getElementById("pir-action-items-exception")
+                                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                            }
+                          }}
+                        >
+                          {m.label}
+                        </button>
+                      </li>
                     ))}
                   </ul>
                   <div className="text-muted-foreground">
@@ -248,7 +349,7 @@ export function PostmortemEditor({
           </CardContent>
         </Card>
 
-        <div className="space-y-2">
+        <div id="pir-action-items-exception" className="space-y-2">
           <Label>Action Items Exception</Label>
           <div className="flex items-center gap-2">
             <input
@@ -294,9 +395,21 @@ export function PostmortemEditor({
             <Save className="mr-1 h-3 w-3" />
             Save
           </Button>
+          {pmStatus !== "final" && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={handleFinalize}
+              disabled={updatePm.isPending}
+            >
+              Finalize
+            </Button>
+          )}
         </div>
 
-        <MarkdownEditor value={content} onChange={setContent} />
+        <div id="pir-postmortem-markdown">
+          <MarkdownEditor value={content} onChange={setContent} />
+        </div>
       </CardContent>
     </Card>
   );

@@ -6,6 +6,23 @@ use crate::models::postmortem::{
     Postmortem, PostmortemTemplate, UpdatePostmortemRequest,
 };
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadinessMissingItem {
+    pub code: String,
+    pub label: String,
+    pub destination: String,
+}
+
+impl ReadinessMissingItem {
+    fn new(code: &str, label: &str, destination: &str) -> Self {
+        Self {
+            code: code.to_string(),
+            label: label.to_string(),
+            destination: destination.to_string(),
+        }
+    }
+}
+
 fn extract_markdown(content: &str) -> String {
     // Content is stored as either raw markdown or a JSON object: {"markdown": "..."}.
     // For readiness checks we only care whether the user has provided meaningful text.
@@ -26,16 +43,24 @@ pub async fn compute_readiness_missing_items(
     content: &str,
     no_action_items_justified: bool,
     no_action_items_justification: &str,
-) -> AppResult<Vec<String>> {
-    let mut missing: Vec<String> = Vec::new();
+) -> AppResult<Vec<ReadinessMissingItem>> {
+    let mut missing: Vec<ReadinessMissingItem> = Vec::new();
 
     if extract_markdown(content).trim().is_empty() {
-        missing.push("Post-mortem content (markdown)".to_string());
+        missing.push(ReadinessMissingItem::new(
+            "POSTMORTEM_MARKDOWN",
+            "Post-mortem content (markdown)",
+            "postmortem",
+        ));
     }
 
     let factors = list_contributing_factors(db, incident_id).await?;
     if factors.is_empty() {
-        missing.push("At least one contributing factor".to_string());
+        missing.push(ReadinessMissingItem::new(
+            "CONTRIBUTING_FACTORS",
+            "At least one contributing factor",
+            "postmortem",
+        ));
     }
 
     missing.extend(
@@ -56,7 +81,7 @@ async fn compute_action_items_missing(
     incident_id: &str,
     no_action_items_justified: bool,
     no_action_items_justification: &str,
-) -> AppResult<Vec<String>> {
+) -> AppResult<Vec<ReadinessMissingItem>> {
     // Action items can exist in the normalized action_items table and/or the legacy
     // incident.action_items field. Either is acceptable for readiness.
     let action_items = incidents::list_action_items(db, Some(incident_id)).await?;
@@ -69,13 +94,19 @@ async fn compute_action_items_missing(
     }
 
     if !no_action_items_justified {
-        return Ok(vec![
-            "At least one action item (or mark as no action items justified)".to_string(),
-        ]);
+        return Ok(vec![ReadinessMissingItem::new(
+            "ACTION_ITEMS",
+            "At least one action item (or mark as no action items justified)",
+            "actions",
+        )]);
     }
 
     if no_action_items_justification.trim().is_empty() {
-        return Ok(vec!["No action items justification text".to_string()]);
+        return Ok(vec![ReadinessMissingItem::new(
+            "ACTION_ITEMS_JUSTIFICATION",
+            "No action items justification text",
+            "postmortem",
+        )]);
     }
 
     Ok(vec![])
@@ -220,7 +251,11 @@ pub async fn update_postmortem(db: &SqlitePool, id: &str, req: &UpdatePostmortem
         if !missing.is_empty() {
             return Err(AppError::Validation(format!(
                 "Cannot finalize post-mortem: missing {}",
-                missing.join(", ")
+                missing
+                    .iter()
+                    .map(|m| m.label.as_str())
+                    .collect::<Vec<&str>>()
+                    .join(", ")
             )));
         }
     }
