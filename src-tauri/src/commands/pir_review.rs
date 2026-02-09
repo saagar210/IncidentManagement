@@ -262,7 +262,10 @@ pub async fn generate_pir_brief_markdown(
     db: State<'_, SqlitePool>,
     incident_id: String,
 ) -> Result<PirBrief, AppError> {
-    pir_brief_markdown_inner(&*db, &incident_id).await
+    let ctx = load_pir_brief_context(&*db, &incident_id).await?;
+    Ok(PirBrief {
+        markdown: build_pir_brief_markdown(&ctx),
+    })
 }
 
 #[tauri::command]
@@ -271,8 +274,8 @@ pub async fn generate_pir_brief_file(
     incident_id: String,
     format: String, // "docx" or "pdf"
 ) -> Result<String, AppError> {
-    let brief = generate_pir_brief_markdown(db, incident_id).await?;
-    let md = brief.markdown;
+    let ctx = load_pir_brief_context(&*db, &incident_id).await?;
+    let md = build_pir_brief_markdown(&ctx);
 
     let file_ext = if format.to_lowercase() == "pdf" { "pdf" } else { "docx" };
     let suffix = format!(".{}", file_ext);
@@ -297,49 +300,6 @@ pub async fn generate_pir_brief_file(
     path.to_str()
         .map(|s| s.to_string())
         .ok_or_else(|| AppError::Report("Invalid temp path encoding".into()))
-}
-
-async fn pir_brief_markdown_inner(
-    db: &SqlitePool,
-    incident_id: &str,
-) -> Result<PirBrief, AppError> {
-    let (inc, pm, factors, action_items, tag_list) = load_pir_brief_data(db, incident_id).await?;
-
-    let mut out = String::new();
-    out.push_str(&format!("# PIR Brief: {}\n\n", md_escape_inline(&inc.title)));
-
-    append_summary_section(&mut out, &inc, pm.as_ref());
-    append_impact_section(&mut out, &inc);
-    append_timeline_section(&mut out, &inc);
-    append_contributing_factors_section(&mut out, &factors);
-    append_action_items_section(&mut out, &action_items, pm.as_ref());
-    append_lessons_section(&mut out, &inc);
-    append_references_section(&mut out, &inc, &tag_list);
-
-    Ok(PirBrief { markdown: out })
-}
-
-async fn load_pir_brief_data(
-    db: &SqlitePool,
-    incident_id: &str,
-) -> Result<
-    (
-        Incident,
-        Option<Postmortem>,
-        Vec<ContributingFactor>,
-        Vec<ActionItem>,
-        Vec<String>,
-    ),
-    AppError,
-> {
-    let (inc, pm, factors, action_items, tag_list) = tokio::try_join!(
-        incidents::get_incident_by_id(db, incident_id),
-        postmortems::get_postmortem_by_incident(db, incident_id),
-        postmortems::list_contributing_factors(db, incident_id),
-        incidents::list_action_items(db, Some(incident_id)),
-        tags::get_incident_tags(db, incident_id),
-    )?;
-    Ok((inc, pm, factors, action_items, tag_list))
 }
 
 fn build_docx_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
