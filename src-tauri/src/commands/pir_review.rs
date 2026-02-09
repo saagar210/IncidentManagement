@@ -134,28 +134,33 @@ fn append_contributing_factors_section(
 
 fn append_action_items_list(out: &mut String, action_items: &[ActionItem]) {
     for ai in action_items {
-        let due = ai.due_date.as_deref().unwrap_or("N/A");
-        let owner = if ai.owner.trim().is_empty() { "Unassigned" } else { ai.owner.as_str() };
-        out.push_str(&format!(
-            "- **{}** [{}] (Owner: {}, Due: {})\n",
-            md_escape_inline(&ai.title),
-            md_escape_inline(&ai.status),
-            md_escape_inline(owner),
-            md_escape_inline(due)
-        ));
-        if let Some(completed) = ai.completed_at.as_deref() {
-            if !completed.is_empty() {
-                out.push_str(&format!("  - Completed: {}\n", completed));
-            }
-        }
-        if ai.validated_at.is_some() {
-            out.push_str("  - Validated: yes\n");
-        }
-        if !ai.outcome_notes.trim().is_empty() {
-            out.push_str(&format!("  - Outcome: {}\n", md_escape_inline(&ai.outcome_notes)));
-        }
+        append_action_item(out, ai);
     }
     out.push_str("\n");
+}
+
+fn append_action_item(out: &mut String, ai: &ActionItem) {
+    let due = ai.due_date.as_deref().unwrap_or("N/A");
+    let owner = match ai.owner.trim() {
+        "" => "Unassigned",
+        _ => ai.owner.as_str(),
+    };
+    out.push_str(&format!(
+        "- **{}** [{}] (Owner: {}, Due: {})\n",
+        md_escape_inline(&ai.title),
+        md_escape_inline(&ai.status),
+        md_escape_inline(owner),
+        md_escape_inline(due)
+    ));
+    if let Some(completed) = ai.completed_at.as_deref() {
+        out.push_str(&format!("  - Completed: {}\n", completed));
+    }
+    if ai.validated_at.is_some() {
+        out.push_str("  - Validated: yes\n");
+    }
+    if !ai.outcome_notes.trim().is_empty() {
+        out.push_str(&format!("  - Outcome: {}\n", md_escape_inline(&ai.outcome_notes)));
+    }
 }
 
 fn append_action_items_none(out: &mut String, pm: Option<&Postmortem>) {
@@ -220,11 +225,7 @@ async fn generate_pir_brief_markdown_impl(
     db: &SqlitePool,
     incident_id: &str,
 ) -> Result<PirBrief, AppError> {
-    let inc = incidents::get_incident_by_id(db, incident_id).await?;
-    let pm = postmortems::get_postmortem_by_incident(db, incident_id).await?;
-    let factors = postmortems::list_contributing_factors(db, incident_id).await?;
-    let action_items = incidents::list_action_items(db, Some(incident_id)).await?;
-    let tag_list = tags::get_incident_tags(db, incident_id).await?;
+    let (inc, pm, factors, action_items, tag_list) = load_pir_brief_data(db, incident_id).await?;
 
     let mut out = String::new();
     out.push_str(&format!("# PIR Brief: {}\n\n", md_escape_inline(&inc.title)));
@@ -238,6 +239,29 @@ async fn generate_pir_brief_markdown_impl(
     append_references_section(&mut out, &inc, &tag_list);
 
     Ok(PirBrief { markdown: out })
+}
+
+async fn load_pir_brief_data(
+    db: &SqlitePool,
+    incident_id: &str,
+) -> Result<
+    (
+        Incident,
+        Option<Postmortem>,
+        Vec<ContributingFactor>,
+        Vec<ActionItem>,
+        Vec<String>,
+    ),
+    AppError,
+> {
+    let (inc, pm, factors, action_items, tag_list) = tokio::try_join!(
+        incidents::get_incident_by_id(db, incident_id),
+        postmortems::get_postmortem_by_incident(db, incident_id),
+        postmortems::list_contributing_factors(db, incident_id),
+        incidents::list_action_items(db, Some(incident_id)),
+        tags::get_incident_tags(db, incident_id),
+    )?;
+    Ok((inc, pm, factors, action_items, tag_list))
 }
 
 #[tauri::command]
