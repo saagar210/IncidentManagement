@@ -238,7 +238,7 @@ export function PostmortemEditor({
         const tempPath = await generatePirFile.mutateAsync({ incidentId, format });
         const ext = format;
         const filterName = format === "pdf" ? "PDF Document" : "Word Document";
-        const safeTitle = title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 80);
+        const safeTitle = title.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 80) || "pir_brief";
 
         const savePath = await save({
           defaultPath: `${safeTitle}_PIR_Brief.${ext}`,

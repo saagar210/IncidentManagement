@@ -277,7 +277,16 @@ pub async fn generate_pir_brief_file(
     let ctx = load_pir_brief_context(&*db, &incident_id).await?;
     let md = build_pir_brief_markdown(&ctx);
 
-    let file_ext = if format.to_lowercase() == "pdf" { "pdf" } else { "docx" };
+    let file_ext = match format.trim().to_lowercase().as_str() {
+        "pdf" => "pdf",
+        "docx" => "docx",
+        other => {
+            return Err(AppError::Validation(format!(
+                "Unsupported export format '{}'. Expected 'docx' or 'pdf'.",
+                other
+            )))
+        }
+    };
     let suffix = format!(".{}", file_ext);
     let mut tmp = tempfile::Builder::new()
         .prefix("pir_brief_")
@@ -319,6 +328,7 @@ fn load_pdf_font_family() -> Result<genpdf::fonts::FontFamily<genpdf::fonts::Fon
     fonts::from_files("", "LiberationSans", None)
         .or_else(|_| fonts::from_files("/Library/Fonts", "Arial", None))
         .or_else(|_| fonts::from_files("/System/Library/Fonts/Supplemental", "Arial", None))
+        .or_else(|_| fonts::from_files("C:/Windows/Fonts", "Arial", None))
         .map_err(|e| {
             AppError::Report(format!(
                 "Failed to load PDF fonts: {}. Install Liberation Sans or Arial.",
@@ -392,7 +402,13 @@ pub async fn get_pir_review_insights(
     db: State<'_, SqlitePool>,
 ) -> Result<PirReviewInsights, AppError> {
     let top_factor_categories = sqlx::query(
-        "SELECT category, COUNT(*) as c FROM contributing_factors GROUP BY category ORDER BY c DESC LIMIT 5",
+        "SELECT cf.category, COUNT(*) as c \
+         FROM contributing_factors cf \
+         JOIN incidents i ON i.id = cf.incident_id \
+         WHERE i.deleted_at IS NULL \
+         GROUP BY cf.category \
+         ORDER BY c DESC \
+         LIMIT 5",
     )
     .fetch_all(&*db)
     .await
@@ -405,10 +421,11 @@ pub async fn get_pir_review_insights(
     .collect();
 
     let top_factor_descriptions = sqlx::query(
-        "SELECT description, COUNT(*) as c \
-         FROM contributing_factors \
-         WHERE TRIM(description) != '' \
-         GROUP BY description \
+        "SELECT cf.description, COUNT(*) as c \
+         FROM contributing_factors cf \
+         JOIN incidents i ON i.id = cf.incident_id \
+         WHERE i.deleted_at IS NULL AND TRIM(cf.description) != '' \
+         GROUP BY cf.description \
          ORDER BY c DESC \
          LIMIT 5",
     )
