@@ -10,3 +10,11 @@ exclude_paths:
   # Codacy is running a T-SQL linter over our SQLite migrations; exclude them to
   # avoid false positives.
   - "src-tauri/src/db/sql/*"
+
+# Codacy's cyclomatic complexity engine ("metric") can mis-score Tauri command
+# functions due to macro expansion. Keep complexity reporting enabled globally,
+# but exclude the few command entrypoints where it becomes misleading noise.
+engines:
+  metric:
+    exclude_paths:
+      - "src-tauri/src/commands/pir_review.rs"
