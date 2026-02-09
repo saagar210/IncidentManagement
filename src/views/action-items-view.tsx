@@ -61,6 +61,9 @@ function formatDueDate(dateStr: string | null): { text: string; className: strin
 export function ActionItemsView() {
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [validationFilter, setValidationFilter] = useState<
+    "" | "unvalidated_done" | "validated"
+  >("");
   const [sortBy, setSortBy] = useState<"due_date" | "created_at" | "status">("due_date");
 
   const { data: actionItems, isLoading } = useActionItems();
@@ -87,6 +90,14 @@ export function ActionItemsView() {
       );
     }
 
+    if (validationFilter === "unvalidated_done") {
+      items = items.filter(
+        (item: ActionItem) => item.status === "Done" && !item.validated_at
+      );
+    } else if (validationFilter === "validated") {
+      items = items.filter((item: ActionItem) => !!item.validated_at);
+    }
+
     // Sort
     items.sort((a: ActionItem, b: ActionItem) => {
       if (sortBy === "due_date") {
@@ -104,7 +115,7 @@ export function ActionItemsView() {
     });
 
     return items;
-  }, [actionItems, statusFilter, overdueOnly, sortBy]);
+  }, [actionItems, statusFilter, overdueOnly, sortBy, validationFilter]);
 
   function handleCycleStatus(item: ActionItem) {
     const nextStatus = STATUS_CYCLE[item.status] ?? "Open";
@@ -143,6 +154,17 @@ export function ActionItemsView() {
           Overdue Only
         </Button>
         <Select
+          value={validationFilter}
+          onChange={(e) =>
+            setValidationFilter(e.target.value as "" | "unvalidated_done" | "validated")
+          }
+          className="w-52"
+        >
+          <option value="">All validation</option>
+          <option value="unvalidated_done">Done, not validated</option>
+          <option value="validated">Validated</option>
+        </Select>
+        <Select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as "due_date" | "created_at" | "status")}
           className="w-36"
@@ -172,6 +194,7 @@ export function ActionItemsView() {
               <TableHead>Title</TableHead>
               <TableHead>Owner</TableHead>
               <TableHead>Due Date</TableHead>
+              <TableHead>Validated</TableHead>
               <TableHead>Incident</TableHead>
               <TableHead>Created</TableHead>
             </TableRow>
@@ -203,6 +226,18 @@ export function ActionItemsView() {
                   </TableCell>
                   <TableCell className={`whitespace-nowrap text-sm ${dueDate.className}`}>
                     {dueDate.text}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap text-sm">
+                    {item.validated_at ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-green-500/10 text-green-600 border-green-500/20"
+                      >
+                        Validated
+                      </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">--</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     {(item as ActionItem & { incident_title?: string }).incident_title ? (

@@ -526,6 +526,8 @@ mod input_validation {
             description: None,
             owner: None,
             due_date: None,
+            outcome_notes: None,
+            validated: None,
         };
         let err = req.validate().unwrap_err();
         assert!(matches!(err, AppError::Validation(msg) if msg.contains("action item status")));
@@ -540,6 +542,8 @@ mod input_validation {
                 description: None,
                 owner: None,
                 due_date: None,
+                outcome_notes: None,
+                validated: None,
             };
             assert!(
                 req.validate().is_ok(),
@@ -557,6 +561,8 @@ mod input_validation {
             description: None,
             owner: None,
             due_date: None,
+            outcome_notes: None,
+            validated: None,
         };
         let err = req.validate().unwrap_err();
         assert!(matches!(err, AppError::Validation(msg) if msg.contains("title")));
@@ -570,6 +576,8 @@ mod input_validation {
             description: None,
             owner: None,
             due_date: None,
+            outcome_notes: None,
+            validated: None,
         };
         let err = req.validate().unwrap_err();
         assert!(matches!(err, AppError::Validation(msg) if msg.contains("title too long")));
@@ -583,6 +591,8 @@ mod input_validation {
             status: None,
             owner: None,
             due_date: None,
+            outcome_notes: None,
+            validated: None,
         };
         let err = req.validate().unwrap_err();
         assert!(matches!(err, AppError::Validation(msg) if msg.contains("Description too long")));

@@ -2,6 +2,6 @@
 exclude_paths:
   - "src/views/incidents-view.test.ts"
   - "src/views/reports-view.test.tsx"
-  # Codacy is running a T-SQL linter over our SQLite migrations; exclude this
-  # migration file rather than adding invalid SQLite statements.
-  - "src-tauri/src/db/sql/016_pir_readiness.sql"
+  # Codacy is running a T-SQL linter over our SQLite migrations; exclude them to
+  # avoid false positives.
+  - "src-tauri/src/db/sql/*"

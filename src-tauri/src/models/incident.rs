@@ -132,6 +132,10 @@ pub struct ActionItem {
     #[serde(default)]
     pub owner: String,
     pub due_date: Option<String>,
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub outcome_notes: String,
+    pub validated_at: Option<String>,
     #[serde(default)]
     pub incident_title: Option<String>,
     pub created_at: String,
@@ -162,6 +166,8 @@ pub struct UpdateActionItemRequest {
     pub status: Option<String>,
     pub owner: Option<String>,
     pub due_date: Option<String>,
+    pub outcome_notes: Option<String>,
+    pub validated: Option<bool>,
 }
 
 const VALID_SEVERITIES: &[&str] = &["Critical", "High", "Medium", "Low"];
@@ -393,6 +399,11 @@ impl UpdateActionItemRequest {
         if let Some(ref description) = self.description {
             if description.len() > MAX_TEXT_FIELD_LEN {
                 return Err(AppError::Validation("Description too long".into()));
+            }
+        }
+        if let Some(ref notes) = self.outcome_notes {
+            if notes.len() > MAX_TEXT_FIELD_LEN {
+                return Err(AppError::Validation("Outcome notes too long".into()));
             }
         }
         if let Some(ref status) = self.status {
