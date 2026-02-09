@@ -48,6 +48,75 @@ pub struct FinalizeQuarterResult {
     pub snapshot: quarter_finalization::QuarterSnapshot,
 }
 
+fn require_overrides_for_critical_findings(
+    readiness: &QuarterReadinessReport,
+    overrides: &[quarter_finalization::QuarterOverride],
+) -> Result<(), AppError> {
+    // Gate on critical findings: every incident_id in a critical finding must have an override recorded.
+    let mut missing: Vec<String> = Vec::new();
+    for finding in readiness.findings.iter().filter(|f| f.severity == "critical") {
+        for incident_id in &finding.incident_ids {
+            let has = overrides
+                .iter()
+                .any(|o| o.rule_key == finding.rule_key && o.incident_id == *incident_id);
+            if !has {
+                missing.push(format!("{}:{}", finding.rule_key, incident_id));
+            }
+        }
+    }
+    if !missing.is_empty() {
+        return Err(AppError::Validation(format!(
+            "Cannot finalize: missing overrides for critical findings: {}",
+            missing.join(", ")
+        )));
+    }
+    Ok(())
+}
+
+fn carried_over_incident_ids(
+    incs: &[crate::models::incident::Incident],
+    quarter_end: &str,
+) -> Vec<String> {
+    incs.iter()
+        .filter(|i| match i.resolved_at.as_deref() {
+            None => true,
+            Some(resolved) => resolved > quarter_end,
+        })
+        .map(|i| i.id.clone())
+        .collect()
+}
+
+fn build_snapshot_json(
+    quarter: &crate::models::quarter::QuarterConfig,
+    readiness: &QuarterReadinessReport,
+    overrides: &[quarter_finalization::QuarterOverride],
+    dashboard: &crate::models::metrics::DashboardData,
+    incident_ids: &[String],
+    notable_incident_ids: &[String],
+    carried_over_incident_ids: &[String],
+    inputs_hash: &str,
+) -> Result<String, AppError> {
+    let snapshot_obj = serde_json::json!({
+        "schema_version": 1,
+        "quarter": {
+            "id": quarter.id,
+            "label": quarter.label,
+            "start_date": quarter.start_date,
+            "end_date": quarter.end_date
+        },
+        "readiness": readiness,
+        "overrides": overrides,
+        "dashboard": dashboard,
+        "incident_ids": incident_ids,
+        "notable_incident_ids": notable_incident_ids,
+        "carried_over_incident_ids": carried_over_incident_ids,
+        "generated_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "inputs_hash": inputs_hash
+    });
+    serde_json::to_string(&snapshot_obj)
+        .map_err(|e| AppError::Report(format!("Failed to serialize quarter snapshot: {}", e)))
+}
+
 #[tauri::command]
 pub async fn get_quarter_finalization_status(
     db: State<'_, SqlitePool>,
@@ -101,23 +170,7 @@ pub async fn finalize_quarter(
 
     let readiness = compute_quarter_readiness(&*db, &req.quarter_id).await?;
     let overrides = quarter_finalization::list_overrides_for_quarter(&*db, &req.quarter_id).await?;
-
-    // Gate on critical findings: every incident_id in a critical finding must have an override recorded.
-    let mut missing_overrides: Vec<String> = Vec::new();
-    for finding in readiness.findings.iter().filter(|f| f.severity == "critical") {
-        for incident_id in &finding.incident_ids {
-            let has = overrides.iter().any(|o| o.rule_key == finding.rule_key && o.incident_id == *incident_id);
-            if !has {
-                missing_overrides.push(format!("{}:{}", finding.rule_key, incident_id));
-            }
-        }
-    }
-    if !missing_overrides.is_empty() {
-        return Err(AppError::Validation(format!(
-            "Cannot finalize: missing overrides for critical findings: {}",
-            missing_overrides.join(", ")
-        )));
-    }
+    require_overrides_for_critical_findings(&readiness, &overrides)?;
 
     let metric_filters = MetricFilters::default();
     let dashboard = metrics::get_dashboard_data_for_quarter(&*db, Some(&req.quarter_id), &metric_filters).await?;
@@ -130,35 +183,17 @@ pub async fn finalize_quarter(
 
     let notable_ids = top_notable_incidents(&incs, 5);
     let incident_ids: Vec<String> = incs.iter().map(|i| i.id.clone()).collect();
-    let carried_over_ids: Vec<String> = incs
-        .iter()
-        .filter(|i| match i.resolved_at.as_deref() {
-            None => true,
-            Some(resolved) => resolved > quarter.end_date.as_str(),
-        })
-        .map(|i| i.id.clone())
-        .collect();
-
-    let snapshot_obj = serde_json::json!({
-        "schema_version": 1,
-        "quarter": {
-            "id": quarter.id,
-            "label": quarter.label,
-            "start_date": quarter.start_date,
-            "end_date": quarter.end_date
-        },
-        "readiness": readiness,
-        "overrides": overrides,
-        "dashboard": dashboard,
-        "incident_ids": incident_ids,
-        "notable_incident_ids": notable_ids,
-        "carried_over_incident_ids": carried_over_ids,
-        "generated_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        "inputs_hash": inputs_hash
-    });
-
-    let snapshot_json = serde_json::to_string(&snapshot_obj)
-        .map_err(|e| AppError::Report(format!("Failed to serialize quarter snapshot: {}", e)))?;
+    let carried_over_ids = carried_over_incident_ids(&incs, quarter.end_date.as_str());
+    let snapshot_json = build_snapshot_json(
+        &quarter,
+        &readiness,
+        &overrides,
+        &dashboard,
+        &incident_ids,
+        &notable_ids,
+        &carried_over_ids,
+        &inputs_hash,
+    )?;
 
     let snapshot = quarter_finalization::upsert_snapshot(&*db, &req.quarter_id, &inputs_hash, &snapshot_json).await?;
 

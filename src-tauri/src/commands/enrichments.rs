@@ -386,6 +386,51 @@ async fn accept_factors(
     Ok(())
 }
 
+type AcceptFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AppError>> + Send + 'a>>;
+type AcceptHandler = for<'a> fn(&'a SqlitePool, &'a enrichment_jobs::EnrichmentJob, &'a str) -> AcceptFuture<'a>;
+
+fn handle_executive_summary<'a>(
+    db: &'a SqlitePool,
+    job: &'a enrichment_jobs::EnrichmentJob,
+    meta: &'a str,
+) -> AcceptFuture<'a> {
+    Box::pin(accept_executive_summary(db, job, meta))
+}
+
+fn handle_stakeholder<'a>(
+    db: &'a SqlitePool,
+    job: &'a enrichment_jobs::EnrichmentJob,
+    meta: &'a str,
+) -> AcceptFuture<'a> {
+    Box::pin(accept_stakeholder(db, job, meta))
+}
+
+fn handle_postmortem<'a>(
+    db: &'a SqlitePool,
+    job: &'a enrichment_jobs::EnrichmentJob,
+    meta: &'a str,
+) -> AcceptFuture<'a> {
+    Box::pin(accept_postmortem(db, job, meta))
+}
+
+fn handle_factors<'a>(
+    db: &'a SqlitePool,
+    job: &'a enrichment_jobs::EnrichmentJob,
+    meta: &'a str,
+) -> AcceptFuture<'a> {
+    Box::pin(accept_factors(db, job, meta))
+}
+
+fn accept_handler(job_type: &str) -> Option<AcceptHandler> {
+    match job_type {
+        "incident_executive_summary" => Some(handle_executive_summary),
+        "stakeholder_update" => Some(handle_stakeholder),
+        "postmortem_draft" => Some(handle_postmortem),
+        "factor_categorization" => Some(handle_factors),
+        _ => None,
+    }
+}
+
 async fn accept_job(db: &SqlitePool, job_id: &str) -> Result<(), AppError> {
     let job = enrichment_jobs::get_job(db, job_id)
         .await?
@@ -407,15 +452,10 @@ async fn accept_job(db: &SqlitePool, job_id: &str) -> Result<(), AppError> {
     })
     .to_string();
 
-    match job.job_type.as_str() {
-        "incident_executive_summary" => accept_executive_summary(db, &job, &meta).await?,
-        "stakeholder_update" => accept_stakeholder(db, &job, &meta).await?,
-        "postmortem_draft" => accept_postmortem(db, &job, &meta).await?,
-        "factor_categorization" => accept_factors(db, &job, &meta).await?,
-        _ => {
-            return Err(AppError::Validation(format!("Unsupported accept for job_type '{}'", job.job_type)));
-        }
-    }
+    let handler = accept_handler(job.job_type.as_str()).ok_or_else(|| {
+        AppError::Validation(format!("Unsupported accept for job_type '{}'", job.job_type))
+    })?;
+    handler(db, &job, &meta).await?;
 
     Ok(())
 }
@@ -425,7 +465,8 @@ pub async fn get_incident_enrichment(
     db: State<'_, SqlitePool>,
     incident_id: String,
 ) -> Result<Option<incident_enrichments::IncidentEnrichment>, AppError> {
-    incident_enrichments::get_incident_enrichment(&*db, &incident_id).await
+    let v = incident_enrichments::get_incident_enrichment(&*db, &incident_id).await?;
+    Ok(v)
 }
 
 fn hash_json(v: &serde_json::Value) -> Result<String, AppError> {

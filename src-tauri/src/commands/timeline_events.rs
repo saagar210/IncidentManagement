@@ -27,6 +27,24 @@ pub struct TimelineImportResult {
     pub errors: Vec<String>,
 }
 
+fn parse_paste_timeline_line(line: &str) -> Result<(String, String), &'static str> {
+    // Expected: "<timestamp> <message>"
+    // Timestamp formats supported by the DB layer:
+    // - RFC3339 (no spaces): 2026-01-01T10:07:00Z
+    // - Simple (contains a space): 2026-01-01 10:06
+    let (ts, msg) = if line.len() >= 16 && line.chars().nth(10) == Some(' ') && line.chars().nth(13) == Some(':') {
+        (&line[..16], line[16..].trim_start())
+    } else if let Some((a, b)) = line.split_once(' ') {
+        (a, b.trim_start())
+    } else {
+        return Err("expected '<timestamp> <message>'");
+    };
+    if msg.trim().is_empty() {
+        return Err("message is required");
+    }
+    Ok((ts.trim().to_string(), msg.trim().to_string()))
+}
+
 #[tauri::command]
 pub async fn import_timeline_events_from_paste(
     db: State<'_, SqlitePool>,
@@ -46,33 +64,20 @@ pub async fn import_timeline_events_from_paste(
             continue;
         }
 
-        // Expected: "<timestamp> <message>"
-        // Timestamp formats supported by the DB layer:
-        // - RFC3339 (no spaces): 2026-01-01T10:07:00Z
-        // - Simple (contains a space): 2026-01-01 10:06
-        let (ts, msg) = if line.len() >= 16
-            && line.chars().nth(10) == Some(' ')
-            && line.chars().nth(13) == Some(':')
-        {
-            (&line[..16], line[16..].trim_start())
-        } else if let Some((a, b)) = line.split_once(' ') {
-            (a, b.trim_start())
-        } else {
-            skipped += 1;
-            errors.push(format!("Line {}: expected '<timestamp> <message>'", idx + 1));
-            continue;
+        let (occurred_at, message) = match parse_paste_timeline_line(line) {
+            Ok(v) => v,
+            Err(msg) => {
+                skipped += 1;
+                errors.push(format!("Line {}: {}", idx + 1, msg));
+                continue;
+            }
         };
-        if msg.trim().is_empty() {
-            skipped += 1;
-            errors.push(format!("Line {}: message is required", idx + 1));
-            continue;
-        }
 
         let req = timeline_events::CreateTimelineEventRequest {
             incident_id: incident_id.clone(),
-            occurred_at: ts.trim().to_string(),
+            occurred_at,
             source: Some(src.clone()),
-            message: msg.trim().to_string(),
+            message,
             actor: None,
         };
 

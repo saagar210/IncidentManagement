@@ -53,25 +53,47 @@ fn incident_missing_required_fields(inc: &Incident) -> bool {
     false
 }
 
-fn incident_has_timestamp_ordering_issue(inc: &Incident) -> bool {
+fn detected_before_started(inc: &Incident) -> bool {
     // These comparisons assume ISO-8601 strings, which is the app contract.
-    if !is_empty(&inc.detected_at) && !is_empty(&inc.started_at) && inc.detected_at < inc.started_at {
+    if is_empty(&inc.detected_at) || is_empty(&inc.started_at) {
+        return false;
+    }
+    inc.detected_at < inc.started_at
+}
+
+fn responded_before_detected(inc: &Incident) -> bool {
+    let Some(ref responded) = inc.responded_at else {
+        return false;
+    };
+    responded < &inc.detected_at
+}
+
+fn acknowledged_before_started(inc: &Incident) -> bool {
+    let Some(ref acknowledged) = inc.acknowledged_at else {
+        return false;
+    };
+    acknowledged < &inc.started_at
+}
+
+fn resolved_before_started(inc: &Incident) -> bool {
+    let Some(ref resolved) = inc.resolved_at else {
+        return false;
+    };
+    resolved < &inc.started_at
+}
+
+fn incident_has_timestamp_ordering_issue(inc: &Incident) -> bool {
+    if detected_before_started(inc) {
         return true;
     }
-    if let Some(ref responded) = inc.responded_at {
-        if responded < &inc.detected_at {
-            return true;
-        }
+    if responded_before_detected(inc) {
+        return true;
     }
-    if let Some(ref acknowledged) = inc.acknowledged_at {
-        if acknowledged < &inc.started_at {
-            return true;
-        }
+    if acknowledged_before_started(inc) {
+        return true;
     }
-    if let Some(ref resolved) = inc.resolved_at {
-        if resolved < &inc.started_at {
-            return true;
-        }
+    if resolved_before_started(inc) {
+        return true;
     }
     false
 }
