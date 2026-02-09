@@ -36,6 +36,7 @@ pub async fn run_migrations(pool: &SqlitePool) -> AppResult<()> {
         (13, "Analytics and FTS", include_str!("sql/013_analytics_fts.sql")),
         (14, "Post-mortem and AI", include_str!("sql/014_postmortem_ai.sql")),
         (15, "UX features", include_str!("sql/015_ux_features.sql")),
+        (16, "PIR readiness", include_str!("sql/016_pir_readiness.sql")),
     ];
 
     for (version, description, sql) in migrations {

@@ -47,6 +47,8 @@ export interface Postmortem {
   status: "draft" | "review" | "final";
   reminder_at: string | null;
   completed_at: string | null;
+  no_action_items_justified: boolean;
+  no_action_items_justification: string;
   created_at: string;
   updated_at: string;
 }
@@ -61,4 +63,6 @@ export interface UpdatePostmortemRequest {
   content?: string;
   status?: "draft" | "review" | "final";
   reminder_at?: string;
+  no_action_items_justified?: boolean;
+  no_action_items_justification?: string;
 }

@@ -9,6 +9,11 @@ import type {
   UpdatePostmortemRequest,
 } from "@/types/postmortem";
 
+type PostmortemReadiness = {
+  can_finalize: boolean;
+  missing: string[];
+};
+
 // --- Contributing Factors ---
 
 export function useContributingFactors(incidentId: string | undefined) {
@@ -103,5 +108,14 @@ export function useDeletePostmortem() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["postmortem"] });
     },
+  });
+}
+
+export function usePostmortemReadiness(incidentId: string | undefined) {
+  return useQuery({
+    queryKey: ["postmortem-readiness", incidentId],
+    queryFn: () =>
+      tauriInvoke<PostmortemReadiness>("get_postmortem_readiness", { incidentId }),
+    enabled: !!incidentId,
   });
 }

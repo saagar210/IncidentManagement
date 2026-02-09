@@ -62,6 +62,10 @@ pub struct Postmortem {
     pub status: String,
     pub reminder_at: Option<String>,
     pub completed_at: Option<String>,
+    #[serde(default)]
+    pub no_action_items_justified: bool,
+    #[serde(default)]
+    pub no_action_items_justification: String,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -95,6 +99,8 @@ pub struct UpdatePostmortemRequest {
     pub content: Option<String>,
     pub status: Option<String>,
     pub reminder_at: Option<String>,
+    pub no_action_items_justified: Option<bool>,
+    pub no_action_items_justification: Option<String>,
 }
 
 const VALID_PM_STATUSES: &[&str] = &["draft", "review", "final"];
@@ -111,6 +117,11 @@ impl UpdatePostmortemRequest {
         if let Some(ref content) = self.content {
             if content.len() > 100_000 {
                 return Err(AppError::Validation("Content too large".into()));
+            }
+        }
+        if let Some(ref justification) = self.no_action_items_justification {
+            if justification.len() > 10_000 {
+                return Err(AppError::Validation("Justification too long (max 10000 chars)".into()));
             }
         }
         Ok(())
