@@ -66,8 +66,3 @@ export interface UpdatePostmortemRequest {
   no_action_items_justified?: boolean;
   no_action_items_justification?: string;
 }
-
-export interface PostmortemReadiness {
-  can_finalize: boolean;
-  missing: string[];
-}

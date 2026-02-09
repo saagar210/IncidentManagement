@@ -7,8 +7,12 @@ import type {
   PostmortemTemplate,
   CreatePostmortemRequest,
   UpdatePostmortemRequest,
-  PostmortemReadiness,
 } from "@/types/postmortem";
+
+type PostmortemReadiness = {
+  can_finalize: boolean;
+  missing: string[];
+};
 
 // --- Contributing Factors ---
 
