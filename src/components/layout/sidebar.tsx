@@ -14,7 +14,8 @@ const NAV_ITEMS = [
   { label: "Action Items", icon: CheckSquare, to: "/action-items", shortcut: null },
   { label: "Learnings", icon: BookOpen, to: "/learnings", shortcut: null },
   { label: "Handoff", icon: ArrowRightLeft, to: "/handoff", shortcut: null },
-  { label: "Reports", icon: FileText, to: "/reports", shortcut: "3" },
+  { label: "Quarter Review", icon: FileText, to: "/quarter-review", shortcut: "3" },
+  { label: "Reports", icon: FileText, to: "/reports", shortcut: null },
   { label: "Settings", icon: Settings, to: "/settings", shortcut: "4" },
 ] as const;
 

@@ -1,7 +1,9 @@
-import { useState, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import { format } from "date-fns";
-import { FileText, Download, Loader2, Eye, CheckSquare, Square, History, Trash2, Sparkles } from "lucide-react";
+import { FileText, Download, Loader2, Eye, CheckSquare, Square, History, Trash2, Sparkles, Copy, ExternalLink } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 import { useQuarters } from "@/hooks/use-quarters";
 import {
   useGenerateReport,
@@ -11,6 +13,7 @@ import {
   useDeleteReportHistory,
   useGenerateNarrative,
 } from "@/hooks/use-reports";
+import { tauriInvoke } from "@/lib/tauri";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -67,6 +70,7 @@ function severityColor(severity: string): string {
 }
 
 export function ReportsView() {
+  const [searchParams] = useSearchParams();
   const { data: quarters, isLoading: quartersLoading } = useQuarters();
   const generateReport = useGenerateReport();
   const saveReport = useSaveReport();
@@ -88,6 +92,14 @@ export function ReportsView() {
   // Build default title from quarter selection
   const selectedQuarter = quarters?.find((q) => q.id === selectedQuarterId);
   const effectiveTitle = title || (selectedQuarter ? `${selectedQuarter.label} Incident Review` : "Incident Review Report");
+
+  // Allow navigation from Quarter Review -> Reports with a preselected quarter.
+  useEffect(() => {
+    const qid = searchParams.get("quarterId");
+    if (!qid) return;
+    setSelectedQuarterId(qid);
+    setShowDiscussionPreview(false);
+  }, [searchParams]);
 
   const toggleSection = useCallback((key: keyof ReportSections) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -151,10 +163,11 @@ export function ReportsView() {
           description: `Report saved to ${savePath}`,
         });
       } else {
-        // User cancelled, clean up temp file by saving to nowhere
+        // User cancelled: clean up temp file (best-effort).
+        await tauriInvoke("delete_temp_file", { tempPath });
         toast({
           title: "Report generated",
-          description: "Report was generated but save was cancelled. The temporary file will be cleaned up.",
+          description: "Report was generated but save was cancelled. The temporary file was cleaned up.",
         });
       }
     } catch (err) {
@@ -435,6 +448,46 @@ export function ReportsView() {
                         : "--"}
                     </TableCell>
                     <TableCell className="text-right">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            await openPath(entry.file_path);
+                          } catch (err) {
+                            toast({ title: "Failed to open file", description: String(err), variant: "destructive" });
+                          }
+                        }}
+                        title="Open file"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={async () => {
+                          try {
+                            const dir = entry.file_path.replace(/[/\\\\][^/\\\\]+$/, "");
+                            await openPath(dir);
+                          } catch (err) {
+                            toast({ title: "Failed to reveal in Finder", description: String(err), variant: "destructive" });
+                          }
+                        }}
+                        title="Reveal in Finder"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={async () => {
+                          await navigator.clipboard.writeText(entry.file_path);
+                          toast({ title: "Path copied to clipboard" });
+                        }}
+                        title="Copy path"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
                       <Button
                         size="icon"
                         variant="ghost"

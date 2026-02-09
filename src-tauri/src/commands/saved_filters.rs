@@ -22,7 +22,7 @@ pub async fn create_saved_filter(
     req.validate()?;
     let id = format!("sf-{}", uuid::Uuid::new_v4());
     let result = saved_filters::create_saved_filter(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "saved_filter",
         &id,
@@ -30,7 +30,10 @@ pub async fn create_saved_filter(
         &format!("Created saved filter: {}", &req.name),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for saved filter create: {}", e);
+    }
     Ok(result)
 }
 
@@ -42,7 +45,7 @@ pub async fn update_saved_filter(
 ) -> Result<SavedFilter, AppError> {
     req.validate()?;
     let result = saved_filters::update_saved_filter(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "saved_filter",
         &id,
@@ -50,7 +53,10 @@ pub async fn update_saved_filter(
         "Updated saved filter",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for saved filter update: {}", e);
+    }
     Ok(result)
 }
 
@@ -60,7 +66,7 @@ pub async fn delete_saved_filter(
     id: String,
 ) -> Result<(), AppError> {
     saved_filters::delete_saved_filter(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "saved_filter",
         &id,
@@ -68,6 +74,9 @@ pub async fn delete_saved_filter(
         "Deleted saved filter",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for saved filter delete: {}", e);
+    }
     Ok(())
 }

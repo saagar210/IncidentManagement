@@ -30,6 +30,7 @@ export interface ImportPreview {
 
 export interface ImportResult {
   created: number;
+  updated: number;
   skipped: number;
   errors: string[];
 }
@@ -38,6 +39,8 @@ export interface ImportTemplate {
   id: string;
   name: string;
   column_mapping: string;
+  source: string;
+  schema_version: number;
   created_at: string;
   updated_at: string;
 }

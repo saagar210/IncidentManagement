@@ -22,7 +22,7 @@ pub async fn create_shift_handoff(
     req.validate()?;
     let id = format!("sh-{}", uuid::Uuid::new_v4());
     let result = shift_handoffs::create(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "shift_handoff",
         &id,
@@ -37,7 +37,10 @@ pub async fn create_shift_handoff(
         ),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for shift handoff create: {}", e);
+    }
     Ok(result)
 }
 
@@ -47,7 +50,7 @@ pub async fn delete_shift_handoff(
     id: String,
 ) -> Result<(), AppError> {
     shift_handoffs::delete(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "shift_handoff",
         &id,
@@ -55,6 +58,9 @@ pub async fn delete_shift_handoff(
         "Deleted shift handoff",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for shift handoff delete: {}", e);
+    }
     Ok(())
 }

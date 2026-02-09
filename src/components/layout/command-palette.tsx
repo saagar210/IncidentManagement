@@ -138,14 +138,21 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 Shift Handoff
               </Command.Item>
               <Command.Item
+                onSelect={() => runAction(() => navigate("/quarter-review"))}
+                className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
+              >
+                <FileText className="h-4 w-4 text-muted-foreground" />
+                Quarter Review
+                <kbd className="ml-auto text-[10px] text-muted-foreground/60">
+                  {"\u2318"}3
+                </kbd>
+              </Command.Item>
+              <Command.Item
                 onSelect={() => runAction(() => navigate("/reports"))}
                 className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-sm cursor-pointer aria-selected:bg-accent"
               >
                 <FileText className="h-4 w-4 text-muted-foreground" />
                 Reports
-                <kbd className="ml-auto text-[10px] text-muted-foreground/60">
-                  {"\u2318"}3
-                </kbd>
               </Command.Item>
               <Command.Item
                 onSelect={() => runAction(() => navigate("/settings"))}

@@ -16,7 +16,7 @@ pub async fn create_incident(
     incident.validate()?;
     let id = format!("inc-{}", uuid::Uuid::new_v4());
     let result = incidents::insert_incident(&*db, &id, &incident).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "incident",
         &id,
@@ -24,7 +24,10 @@ pub async fn create_incident(
         &format!("Created incident: {}", &incident.title),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for incident create: {}", e);
+    }
     Ok(result)
 }
 
@@ -41,7 +44,9 @@ pub async fn update_incident(
     } else {
         "Updated incident".to_string()
     };
-    let _ = audit::insert_audit_entry(&*db, "incident", &id, "updated", &summary, "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "incident", &id, "updated", &summary, "").await {
+        eprintln!("Warning: failed to write audit entry for incident update: {}", e);
+    }
     Ok(result)
 }
 
@@ -51,7 +56,9 @@ pub async fn delete_incident(
     id: String,
 ) -> Result<(), AppError> {
     incidents::delete_incident(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(&*db, "incident", &id, "deleted", "Moved incident to trash", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "incident", &id, "deleted", "Moved incident to trash", "").await {
+        eprintln!("Warning: failed to write audit entry for incident delete: {}", e);
+    }
     Ok(())
 }
 
@@ -144,7 +151,7 @@ pub async fn create_action_item(
     item.validate()?;
     let id = format!("ai-{}", uuid::Uuid::new_v4());
     let result = incidents::insert_action_item(&*db, &id, &item).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "action_item",
         &id,
@@ -152,7 +159,10 @@ pub async fn create_action_item(
         &format!("Created action item: {}", &item.title),
         &format!("incident_id: {}", &item.incident_id),
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for action item create: {}", e);
+    }
     Ok(result)
 }
 
@@ -169,7 +179,9 @@ pub async fn update_action_item(
     } else {
         "Updated action item".to_string()
     };
-    let _ = audit::insert_audit_entry(&*db, "action_item", &id, "updated", &summary, "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "action_item", &id, "updated", &summary, "").await {
+        eprintln!("Warning: failed to write audit entry for action item update: {}", e);
+    }
     Ok(result)
 }
 
@@ -179,7 +191,9 @@ pub async fn delete_action_item(
     id: String,
 ) -> Result<(), AppError> {
     incidents::delete_action_item(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(&*db, "action_item", &id, "deleted", "Deleted action item", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "action_item", &id, "deleted", "Deleted action item", "").await {
+        eprintln!("Warning: failed to write audit entry for action item delete: {}", e);
+    }
     Ok(())
 }
 

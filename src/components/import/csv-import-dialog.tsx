@@ -386,6 +386,14 @@ export function CSVImportDialog({
                   {result.created}
                 </span>
               </div>
+              {result.updated > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Updated:</span>
+                  <span className="font-medium text-blue-600">
+                    {result.updated}
+                  </span>
+                </div>
+              )}
               {result.skipped > 0 && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Skipped:</span>

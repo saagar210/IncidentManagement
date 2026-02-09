@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Trash2, Save } from "lucide-react";
+import { ArrowLeft, Trash2, Save, Info } from "lucide-react";
 import {
   useIncident,
   useCreateIncident,
@@ -28,6 +28,7 @@ import { RoleAssignmentPanel } from "@/components/incidents/role-assignment-pane
 import { ChecklistPanel } from "@/components/incidents/checklist-panel";
 import { StatusTransitionBar } from "@/components/incidents/status-transition-bar";
 import { IncidentTimelineStream } from "@/components/incidents/incident-timeline-stream";
+import { ProvenanceDialog } from "@/components/incidents/provenance-dialog";
 import { ContributingFactorsForm } from "@/components/incidents/contributing-factors-form";
 import { PostmortemEditor } from "@/components/incidents/postmortem-editor";
 import { AiSummaryPanel } from "@/components/ai/ai-summary-panel";
@@ -131,6 +132,7 @@ export function IncidentDetailView() {
   const [activeTab, setActiveTab] = useState<
     "details" | "analysis" | "actions" | "postmortem" | "activity"
   >("details");
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
 
   // Tags
   const [tags, setTags] = useState<string[]>([]);
@@ -349,6 +351,12 @@ export function IncidentDetailView() {
               Delete
             </Button>
           )}
+          {isEditMode && id ? (
+            <Button variant="outline" size="sm" onClick={() => setProvenanceOpen(true)}>
+              <Info className="h-4 w-4" />
+              Provenance
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={() => navigate("/incidents")}>
             Cancel
           </Button>
@@ -361,6 +369,13 @@ export function IncidentDetailView() {
           </Button>
         </div>
       </div>
+
+      <ProvenanceDialog
+        open={provenanceOpen}
+        onOpenChange={setProvenanceOpen}
+        entityType="incident"
+        entityId={isEditMode ? (id as string) : null}
+      />
 
       {/* Tabbed Form */}
       <form onSubmit={handleSubmit(onSubmit)}>
@@ -711,14 +726,7 @@ export function IncidentDetailView() {
                 </div>
                 <div className="space-y-4">
                   <AiSummaryPanel
-                    title={watch("title")}
-                    severity={watch("severity")}
-                    status={watch("status")}
-                    service={services?.find((s) => s.id === watch("service_id"))?.name ?? ""}
-                    impact={watch("impact")}
-                    rootCause={watch("root_cause")}
-                    resolution={watch("resolution")}
-                    notes={watch("notes")}
+                    incidentId={id}
                   />
                   <RootCauseSuggestions
                     title={watch("title")}

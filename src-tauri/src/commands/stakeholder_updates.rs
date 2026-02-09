@@ -21,7 +21,7 @@ pub async fn create_stakeholder_update(
     req.validate()?;
     let id = format!("su-{}", uuid::Uuid::new_v4());
     let result = stakeholder_updates::create(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "stakeholder_update",
         &id,
@@ -32,7 +32,10 @@ pub async fn create_stakeholder_update(
         ),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for stakeholder update create: {}", e);
+    }
     Ok(result)
 }
 
@@ -42,7 +45,7 @@ pub async fn delete_stakeholder_update(
     id: String,
 ) -> Result<(), AppError> {
     stakeholder_updates::delete(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "stakeholder_update",
         &id,
@@ -50,6 +53,9 @@ pub async fn delete_stakeholder_update(
         "Deleted stakeholder update",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for stakeholder update delete: {}", e);
+    }
     Ok(())
 }

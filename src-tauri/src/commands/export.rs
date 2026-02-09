@@ -64,8 +64,8 @@ pub async fn export_incidents_csv(
     db: State<'_, SqlitePool>,
     filters_json: String,
 ) -> Result<String, AppError> {
-    let filters: IncidentFilters =
-        serde_json::from_str(&filters_json).unwrap_or_default();
+    let filters: IncidentFilters = serde_json::from_str(&filters_json)
+        .map_err(|e| AppError::Validation(format!("Invalid filters JSON: {}", e)))?;
 
     let (sql, binds) = build_filtered_query(&filters);
 
@@ -231,7 +231,7 @@ pub async fn export_incidents_csv(
         .ok_or_else(|| AppError::Internal("Invalid path encoding".into()))?
         .to_string();
 
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "export",
         "csv",
@@ -239,7 +239,10 @@ pub async fn export_incidents_csv(
         &format!("Exported {} incidents to CSV", rows.len()),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for CSV export: {}", e);
+    }
 
     Ok(path_str)
 }
@@ -249,8 +252,8 @@ pub async fn export_incidents_json(
     db: State<'_, SqlitePool>,
     filters_json: String,
 ) -> Result<String, AppError> {
-    let filters: IncidentFilters =
-        serde_json::from_str(&filters_json).unwrap_or_default();
+    let filters: IncidentFilters = serde_json::from_str(&filters_json)
+        .map_err(|e| AppError::Validation(format!("Invalid filters JSON: {}", e)))?;
 
     let (sql, binds) = build_filtered_query(&filters);
 
@@ -326,7 +329,7 @@ pub async fn export_incidents_json(
         .ok_or_else(|| AppError::Internal("Invalid path encoding".into()))?
         .to_string();
 
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "export",
         "json",
@@ -334,7 +337,10 @@ pub async fn export_incidents_json(
         &format!("Exported {} incidents to JSON", incidents.len()),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for JSON export: {}", e);
+    }
 
     Ok(path_str)
 }

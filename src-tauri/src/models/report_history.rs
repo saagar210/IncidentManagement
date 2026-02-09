@@ -10,4 +10,9 @@ pub struct ReportHistory {
     pub file_path: String,
     pub config_json: String,
     pub file_size_bytes: Option<i64>,
+    #[serde(default)]
+    pub inputs_hash: String,
+    #[serde(default)]
+    pub report_version: i64,
+    pub quarter_finalized_at: Option<String>,
 }

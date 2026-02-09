@@ -6,6 +6,23 @@ use crate::error::{AppError, AppResult};
 
 const MAX_ATTACHMENT_SIZE: u64 = 10 * 1024 * 1024; // 10MB
 
+fn validate_attachment_filename(filename: &str) -> Result<(), AppError> {
+    if filename.trim().is_empty() {
+        return Err(AppError::Validation("Filename is required".into()));
+    }
+    if filename.len() > 255 {
+        return Err(AppError::Validation("Filename too long".into()));
+    }
+    // `filename` is used for display and MIME guessing only, but keep it a plain basename
+    // to avoid confusing UI and accidental path semantics.
+    if filename.contains('/') || filename.contains('\\') || filename.contains('\0') {
+        return Err(AppError::Validation(
+            "Filename must not contain path separators or NUL".into(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: String,
@@ -25,12 +42,7 @@ pub async fn upload_attachment(
     source_path: String,
     filename: String,
 ) -> Result<Attachment, AppError> {
-    if filename.trim().is_empty() {
-        return Err(AppError::Validation("Filename is required".into()));
-    }
-    if filename.len() > 255 {
-        return Err(AppError::Validation("Filename too long".into()));
-    }
+    validate_attachment_filename(&filename)?;
 
     let metadata = tokio::fs::metadata(&source_path)
         .await
@@ -111,8 +123,15 @@ pub async fn delete_attachment(
 ) -> Result<(), AppError> {
     let att = get_attachment(&db, &id).await?;
 
-    // Delete physical file
-    let _ = tokio::fs::remove_file(&att.file_path).await;
+    // Delete physical file first so we don't end up with a dangling DB record pointing at a file
+    // we failed to delete (permission, locked file, etc.).
+    match tokio::fs::remove_file(&att.file_path).await {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Already gone; proceed with DB cleanup.
+        }
+        Err(e) => return Err(AppError::Io(e)),
+    }
 
     sqlx::query("DELETE FROM attachments WHERE id = ?")
         .bind(&id)
@@ -167,4 +186,22 @@ fn guess_mime(filename: &str) -> String {
         _ => "application/octet-stream",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_attachment_filename;
+
+    #[test]
+    fn validate_attachment_filename_accepts_simple_names() {
+        validate_attachment_filename("report.pdf").expect("valid");
+        validate_attachment_filename("image.png").expect("valid");
+        validate_attachment_filename("noext").expect("valid");
+    }
+
+    #[test]
+    fn validate_attachment_filename_rejects_path_separators() {
+        assert!(validate_attachment_filename("a/b.pdf").is_err());
+        assert!(validate_attachment_filename("a\\b.pdf").is_err());
+    }
 }

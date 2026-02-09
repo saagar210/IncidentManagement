@@ -16,7 +16,7 @@ pub async fn create_service(
     service.validate()?;
     let id = format!("svc-{}", uuid::Uuid::new_v4());
     let result = services::insert_service(&*db, &id, &service).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "service",
         &id,
@@ -24,7 +24,10 @@ pub async fn create_service(
         &format!("Created service: {}", &service.name),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for service create: {}", e);
+    }
     Ok(result)
 }
 
@@ -36,15 +39,18 @@ pub async fn update_service(
 ) -> Result<Service, AppError> {
     service.validate()?;
     let result = services::update_service(&*db, &id, &service).await?;
-    let _ = audit::insert_audit_entry(&*db, "service", &id, "updated", "Updated service", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "service", &id, "updated", "Updated service", "").await {
+        eprintln!("Warning: failed to write audit entry for service update: {}", e);
+    }
     Ok(result)
 }
 
 #[tauri::command]
 pub async fn delete_service(db: State<'_, SqlitePool>, id: String) -> Result<(), AppError> {
     services::delete_service(&*db, &id).await?;
-    let _ =
-        audit::insert_audit_entry(&*db, "service", &id, "deleted", "Deleted service", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "service", &id, "deleted", "Deleted service", "").await {
+        eprintln!("Warning: failed to write audit entry for service delete: {}", e);
+    }
     Ok(())
 }
 
@@ -80,7 +86,7 @@ pub async fn add_service_dependency(
         &req.dependency_type,
     )
     .await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "service",
         &req.service_id,
@@ -88,7 +94,10 @@ pub async fn add_service_dependency(
         &format!("Added dependency on service {}", &req.depends_on_service_id),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for service dependency add: {}", e);
+    }
     Ok(result)
 }
 
@@ -98,7 +107,7 @@ pub async fn remove_service_dependency(
     id: String,
 ) -> Result<(), AppError> {
     service_dependencies::delete_dependency(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "service_dependency",
         &id,
@@ -106,7 +115,13 @@ pub async fn remove_service_dependency(
         "Removed service dependency",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for service dependency remove: {}",
+            e
+        );
+    }
     Ok(())
 }
 

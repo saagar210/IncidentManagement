@@ -38,6 +38,13 @@ pub async fn run_migrations(pool: &SqlitePool) -> AppResult<()> {
         (15, "UX features", include_str!("sql/015_ux_features.sql")),
         (16, "PIR readiness", include_str!("sql/016_pir_readiness.sql")),
         (17, "Action item follow-through", include_str!("sql/017_action_item_followthrough.sql")),
+        (18, "Index detected_at", include_str!("sql/018_detected_at_index.sql")),
+        (19, "Quarter finalization", include_str!("sql/019_quarter_finalization.sql")),
+        (20, "Service aliases and import templates", include_str!("sql/020_service_aliases_and_import_templates.sql")),
+        (21, "Timeline events", include_str!("sql/021_timeline_events.sql")),
+        (22, "Field provenance", include_str!("sql/022_field_provenance.sql")),
+        (23, "Enrichment jobs", include_str!("sql/023_enrichment_jobs.sql")),
+        (24, "Report history inputs hash", include_str!("sql/024_report_history_inputs_hash.sql")),
     ];
 
     for (version, description, sql) in migrations {

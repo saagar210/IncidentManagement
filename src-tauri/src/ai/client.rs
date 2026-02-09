@@ -54,7 +54,10 @@ pub async fn generate(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
+        let text = match resp.text().await {
+            Ok(t) => t,
+            Err(e) => format!("<failed to read response body: {}>", e),
+        };
         return Err(AppError::Ai(format!(
             "Ollama returned {}: {}",
             status, text

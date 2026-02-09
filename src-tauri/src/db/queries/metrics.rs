@@ -18,8 +18,9 @@ pub struct DateRange {
 fn build_where_clause(range: &DateRange, filters: &MetricFilters) -> (String, Vec<String>) {
     let mut conditions = vec![
         "i.deleted_at IS NULL".to_string(),
-        "i.started_at >= ?".to_string(),
-        "i.started_at <= ?".to_string(),
+        // Quarter inclusion rule: incidents are included by detected_at.
+        "i.detected_at >= ?".to_string(),
+        "i.detected_at <= ?".to_string(),
     ];
     let mut params: Vec<String> = vec![
         range.start.clone(),
@@ -383,8 +384,8 @@ pub async fn get_service_reliability(
         FROM incidents i
         LEFT JOIN services s ON i.service_id = s.id
         WHERE i.deleted_at IS NULL
-          AND i.started_at >= ?
-          AND i.started_at <= ?
+          AND i.detected_at >= ?
+          AND i.detected_at <= ?
         GROUP BY i.service_id, s.name
         ORDER BY incident_count DESC"
     )
@@ -410,8 +411,8 @@ pub async fn get_service_reliability(
             JOIN sla_definitions sd ON sd.priority = i.priority
             WHERE i.deleted_at IS NULL
               AND i.service_id = ?
-              AND i.started_at >= ?
-              AND i.started_at <= ?
+              AND i.detected_at >= ?
+              AND i.detected_at <= ?
               AND i.resolved_at IS NOT NULL"
         )
         .bind(&service_id)
@@ -452,7 +453,7 @@ pub async fn get_escalation_funnel(
     range: &DateRange,
 ) -> AppResult<Vec<EscalationFunnelEntry>> {
     let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM incidents WHERE deleted_at IS NULL AND started_at >= ? AND started_at <= ?"
+        "SELECT COUNT(*) FROM incidents WHERE deleted_at IS NULL AND detected_at >= ? AND detected_at <= ?"
     )
     .bind(&range.start)
     .bind(&range.end)
@@ -463,7 +464,7 @@ pub async fn get_escalation_funnel(
     let rows = sqlx::query(
         "SELECT severity, COUNT(*) as cnt
         FROM incidents
-        WHERE deleted_at IS NULL AND started_at >= ? AND started_at <= ?
+        WHERE deleted_at IS NULL AND detected_at >= ? AND detected_at <= ?
         GROUP BY severity
         ORDER BY CASE severity
             WHEN 'Critical' THEN 1
@@ -568,5 +569,105 @@ pub async fn get_dashboard_data_for_quarter(
                 period_label: "No quarter configured".to_string(),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::migrations::run_migrations;
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+    use std::str::FromStr;
+
+    async fn test_db() -> SqlitePool {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("test.db");
+
+        // Keep the tempdir alive by leaking it; this is fine for short-lived test processes.
+        std::mem::forget(dir);
+
+        let db_url = format!("sqlite:{}?mode=rwc", path.display());
+        let options = SqliteConnectOptions::from_str(&db_url)
+            .expect("connect options")
+            .journal_mode(SqliteJournalMode::Wal)
+            .pragma("foreign_keys", "ON")
+            .create_if_missing(true);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect");
+
+        run_migrations(&pool).await.expect("migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn dashboard_quarter_includes_by_detected_at() {
+        let db = test_db().await;
+
+        // Quarter: 2025 Q1
+        sqlx::query(
+            "INSERT INTO quarter_config (id, fiscal_year, quarter_number, start_date, end_date, label)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind("q1")
+        .bind(2025_i64)
+        .bind(1_i64)
+        .bind("2025-01-01T00:00:00Z")
+        .bind("2025-03-31T23:59:59Z")
+        .bind("FY25 Q1")
+        .execute(&db)
+        .await
+        .unwrap();
+
+        // Required FK: service
+        sqlx::query(
+            "INSERT INTO services (id, name, category, default_severity, default_impact)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("svc-001")
+        .bind("Test Service")
+        .bind("Infrastructure")
+        .bind("High")
+        .bind("High")
+        .execute(&db)
+        .await
+        .unwrap();
+
+        // Incident started in previous year but detected in-quarter; must be counted in Q1.
+        sqlx::query(
+            "INSERT INTO incidents (
+                id, title, service_id, severity, impact, status,
+                started_at, detected_at, resolved_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("inc-001")
+        .bind("Boundary incident")
+        .bind("svc-001")
+        .bind("High")
+        .bind("High")
+        .bind("Resolved")
+        .bind("2024-12-31T23:50:00Z")
+        .bind("2025-01-01T00:10:00Z")
+        .bind("2025-01-01T01:00:00Z")
+        .execute(&db)
+        .await
+        .unwrap();
+
+        let filters = MetricFilters::default();
+        let dash = get_dashboard_data_for_quarter(&db, Some("q1"), &filters)
+            .await
+            .unwrap();
+
+        assert_eq!(dash.total_incidents, 1);
+        let high = dash
+            .by_severity
+            .iter()
+            .find(|c| c.category == "High")
+            .map(|c| c.count)
+            .unwrap_or(0);
+        assert_eq!(high, 1);
     }
 }

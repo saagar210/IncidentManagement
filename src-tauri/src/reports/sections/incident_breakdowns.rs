@@ -2,11 +2,16 @@ use docx_rs::*;
 
 use crate::models::incident::Incident;
 use crate::models::metrics::format_minutes;
+use crate::db::queries::timeline_events::TimelineEvent;
 
 use crate::reports::markdown;
 use super::{heading1, heading2, body_text, label_value, header_cell, text_cell, spacer};
 
-pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
+pub fn build(
+    docx: Docx,
+    incidents: &[Incident],
+    timeline_events: &std::collections::HashMap<String, Vec<TimelineEvent>>,
+) -> Docx {
     let mut docx = docx.add_paragraph(heading1("Critical Incident Breakdowns"));
 
     // Filter to P0 and P1 incidents
@@ -57,6 +62,26 @@ pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
             docx = docx.add_paragraph(label_value("Resolved: ", resolved));
         }
         docx = docx.add_paragraph(spacer());
+
+        // Imported/manual timeline events (optional but confidence-boosting)
+        if let Some(events) = timeline_events.get(&incident.id) {
+            if !events.is_empty() {
+                docx = docx.add_paragraph(
+                    Paragraph::new()
+                        .add_run(Run::new().add_text("Timeline Events:").bold().size(11 * 2))
+                );
+                for ev in events.iter().take(8) {
+                    let when = ev.occurred_at.get(..16).unwrap_or(&ev.occurred_at);
+                    let who = if ev.actor.trim().is_empty() {
+                        "".to_string()
+                    } else {
+                        format!(" ({})", ev.actor)
+                    };
+                    docx = docx.add_paragraph(body_text(&format!("  \u{2022}  {} - {}{}", when, ev.message, who)));
+                }
+                docx = docx.add_paragraph(spacer());
+            }
+        }
 
         // Root cause (markdown-rendered)
         if !incident.root_cause.is_empty() {

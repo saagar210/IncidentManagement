@@ -70,6 +70,37 @@ jobs:
       - name: Run backend tests
         run: cargo test --lib
 
+  macos-release-build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Compile Tauri release (no bundle)
+        run: pnpm tauri build --no-bundle --ci
+
   codacy:
     runs-on: ubuntu-latest
     if: ${{ github.ref == 'refs/heads/main' }}

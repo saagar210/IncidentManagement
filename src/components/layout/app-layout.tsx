@@ -25,7 +25,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Top bar with sidebar toggle */}
-        <div className="flex h-10 shrink-0 items-center justify-between border-b px-2">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b bg-background/70 px-2 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <Button
             variant="ghost"
             size="icon"
