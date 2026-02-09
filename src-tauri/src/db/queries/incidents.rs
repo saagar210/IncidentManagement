@@ -890,6 +890,33 @@ mod tests {
         }
     }
 
+    async fn seed_incident_with_action_item(
+        pool: &sqlx::SqlitePool,
+        service_id: &str,
+        incident_id: &str,
+        action_item_id: &str,
+    ) {
+        let request = make_create_request(service_id, "Active");
+        insert_incident(pool, incident_id, &request)
+            .await
+            .expect("insert incident");
+
+        insert_action_item(
+            pool,
+            action_item_id,
+            &CreateActionItemRequest {
+                incident_id: incident_id.to_string(),
+                title: "Write incident review playbook".to_string(),
+                description: "".to_string(),
+                status: "Open".to_string(),
+                owner: "".to_string(),
+                due_date: None,
+            },
+        )
+        .await
+        .expect("insert action item");
+    }
+
     #[tokio::test]
     async fn bulk_update_status_rejects_invalid_transition() {
         let (_dir, pool, service_id) = setup_db().await;
@@ -926,29 +953,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn action_item_followthrough_fields_update_as_expected() {
+    async fn action_item_completed_at_sets_and_clears() {
         let (_dir, pool, service_id) = setup_db().await;
-        let request = make_create_request(&service_id, "Active");
-        insert_incident(&pool, "inc-ai-1", &request)
-            .await
-            .expect("insert incident");
-
-        let created = insert_action_item(
-            &pool,
-            "ai-test-1",
-            &CreateActionItemRequest {
-                incident_id: "inc-ai-1".to_string(),
-                title: "Write incident review playbook".to_string(),
-                description: "".to_string(),
-                status: "Open".to_string(),
-                owner: "".to_string(),
-                due_date: None,
-            },
-        )
-        .await
-        .expect("insert action item");
-        assert!(created.completed_at.is_none());
-        assert!(created.validated_at.is_none());
+        seed_incident_with_action_item(&pool, &service_id, "inc-ai-1", "ai-test-1").await;
 
         let done = update_action_item(
             &pool,
@@ -972,23 +979,6 @@ mod tests {
             "Updated internal docs to clarify escalation paths."
         );
 
-        let validated = update_action_item(
-            &pool,
-            "ai-test-1",
-            &UpdateActionItemRequest {
-                title: None,
-                description: None,
-                status: None,
-                owner: None,
-                due_date: None,
-                outcome_notes: None,
-                validated: Some(true),
-            },
-        )
-        .await
-        .expect("validate");
-        assert!(validated.validated_at.is_some());
-
         let reopened = update_action_item(
             &pool,
             "ai-test-1",
@@ -1006,6 +996,62 @@ mod tests {
         .expect("reopen");
         assert_eq!(reopened.status, "Open");
         assert!(reopened.completed_at.is_none());
-        assert!(reopened.validated_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn action_item_validation_toggle_sets_and_clears() {
+        let (_dir, pool, service_id) = setup_db().await;
+        seed_incident_with_action_item(&pool, &service_id, "inc-ai-2", "ai-test-2").await;
+
+        let done = update_action_item(
+            &pool,
+            "ai-test-2",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: Some("Done".to_string()),
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated: None,
+            },
+        )
+        .await
+        .expect("mark done");
+        assert!(done.completed_at.is_some());
+
+        let validated = update_action_item(
+            &pool,
+            "ai-test-2",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: None,
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated: Some(true),
+            },
+        )
+        .await
+        .expect("validate");
+        assert!(validated.validated_at.is_some());
+
+        let cleared = update_action_item(
+            &pool,
+            "ai-test-2",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: None,
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated: Some(false),
+            },
+        )
+        .await
+        .expect("clear validation");
+        assert!(cleared.validated_at.is_none());
     }
 }
