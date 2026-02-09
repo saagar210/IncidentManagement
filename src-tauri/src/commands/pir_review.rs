@@ -221,6 +221,40 @@ pub async fn generate_pir_brief_markdown(
     generate_pir_brief_markdown_impl(&*db, &incident_id).await
 }
 
+#[tauri::command]
+pub async fn generate_pir_brief_file(
+    db: State<'_, SqlitePool>,
+    incident_id: String,
+    format: String, // "docx" or "pdf"
+) -> Result<String, AppError> {
+    let brief = generate_pir_brief_markdown(db, incident_id).await?;
+    let md = brief.markdown;
+
+    let file_ext = if format.to_lowercase() == "pdf" { "pdf" } else { "docx" };
+    let suffix = format!(".{}", file_ext);
+    let mut tmp = tempfile::Builder::new()
+        .prefix("pir_brief_")
+        .suffix(&suffix)
+        .tempfile()
+        .map_err(|e| AppError::Report(format!("Failed to create temp file: {}", e)))?;
+
+    let bytes = if file_ext == "pdf" {
+        build_pdf_from_markdown(&md)?
+    } else {
+        build_docx_from_markdown(&md)?
+    };
+
+    tmp.write_all(&bytes)
+        .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
+
+    let (_file, path) = tmp
+        .keep()
+        .map_err(|e| AppError::Report(format!("Failed to persist temp file: {}", e)))?;
+    path.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| AppError::Report("Invalid temp path encoding".into()))
+}
+
 async fn generate_pir_brief_markdown_impl(
     db: &SqlitePool,
     incident_id: &str,
@@ -262,40 +296,6 @@ async fn load_pir_brief_data(
         tags::get_incident_tags(db, incident_id),
     )?;
     Ok((inc, pm, factors, action_items, tag_list))
-}
-
-#[tauri::command]
-pub async fn generate_pir_brief_file(
-    db: State<'_, SqlitePool>,
-    incident_id: String,
-    format: String, // "docx" or "pdf"
-) -> Result<String, AppError> {
-    let brief = generate_pir_brief_markdown(db, incident_id).await?;
-    let md = brief.markdown;
-
-    let file_ext = if format.to_lowercase() == "pdf" { "pdf" } else { "docx" };
-    let suffix = format!(".{}", file_ext);
-    let mut tmp = tempfile::Builder::new()
-        .prefix("pir_brief_")
-        .suffix(&suffix)
-        .tempfile()
-        .map_err(|e| AppError::Report(format!("Failed to create temp file: {}", e)))?;
-
-    let bytes = if file_ext == "pdf" {
-        build_pdf_from_markdown(&md)?
-    } else {
-        build_docx_from_markdown(&md)?
-    };
-
-    tmp.write_all(&bytes)
-        .map_err(|e| AppError::Report(format!("Failed to write temp file: {}", e)))?;
-
-    let (_file, path) = tmp
-        .keep()
-        .map_err(|e| AppError::Report(format!("Failed to persist temp file: {}", e)))?;
-    path.to_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| AppError::Report("Invalid temp path encoding".into()))
 }
 
 fn build_docx_from_markdown(md: &str) -> Result<Vec<u8>, AppError> {
