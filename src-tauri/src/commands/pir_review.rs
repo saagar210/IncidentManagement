@@ -213,12 +213,56 @@ fn append_references_section(
     out.push_str(&format!("- Incident ID: {}\n", inc.id));
 }
 
+struct PirBriefContext {
+    inc: Incident,
+    pm: Option<Postmortem>,
+    factors: Vec<ContributingFactor>,
+    action_items: Vec<ActionItem>,
+    tags: Vec<String>,
+}
+
+async fn load_pir_brief_context(
+    db: &SqlitePool,
+    incident_id: &str,
+) -> Result<PirBriefContext, AppError> {
+    let (inc, pm, factors, action_items, tags) = tokio::try_join!(
+        incidents::get_incident_by_id(db, incident_id),
+        postmortems::get_postmortem_by_incident(db, incident_id),
+        postmortems::list_contributing_factors(db, incident_id),
+        incidents::list_action_items(db, Some(incident_id)),
+        tags::get_incident_tags(db, incident_id),
+    )?;
+    Ok(PirBriefContext {
+        inc,
+        pm,
+        factors,
+        action_items,
+        tags,
+    })
+}
+
+fn build_pir_brief_markdown(ctx: &PirBriefContext) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "# PIR Brief: {}\n\n",
+        md_escape_inline(&ctx.inc.title)
+    ));
+    append_summary_section(&mut out, &ctx.inc, ctx.pm.as_ref());
+    append_impact_section(&mut out, &ctx.inc);
+    append_timeline_section(&mut out, &ctx.inc);
+    append_contributing_factors_section(&mut out, &ctx.factors);
+    append_action_items_section(&mut out, &ctx.action_items, ctx.pm.as_ref());
+    append_lessons_section(&mut out, &ctx.inc);
+    append_references_section(&mut out, &ctx.inc, &ctx.tags);
+    out
+}
+
 #[tauri::command]
 pub async fn generate_pir_brief_markdown(
     db: State<'_, SqlitePool>,
     incident_id: String,
 ) -> Result<PirBrief, AppError> {
-    generate_pir_brief_markdown_impl(&*db, &incident_id).await
+    pir_brief_markdown_inner(&*db, &incident_id).await
 }
 
 #[tauri::command]
@@ -255,7 +299,7 @@ pub async fn generate_pir_brief_file(
         .ok_or_else(|| AppError::Report("Invalid temp path encoding".into()))
 }
 
-async fn generate_pir_brief_markdown_impl(
+async fn pir_brief_markdown_inner(
     db: &SqlitePool,
     incident_id: &str,
 ) -> Result<PirBrief, AppError> {
