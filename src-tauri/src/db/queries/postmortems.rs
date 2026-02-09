@@ -298,6 +298,52 @@ mod tests {
         }
     }
 
+    async fn add_action_item(db: &sqlx::SqlitePool, incident_id: &str) {
+        incidents::insert_action_item(
+            db,
+            "ai-1",
+            &CreateActionItemRequest {
+                incident_id: incident_id.to_string(),
+                title: "Write vendor outage playbook".to_string(),
+                description: "".to_string(),
+                status: "Open".to_string(),
+                owner: "IT".to_string(),
+                due_date: None,
+            },
+        )
+        .await
+        .expect("insert action item");
+    }
+
+    async fn add_contributing_factor(db: &sqlx::SqlitePool, incident_id: &str) {
+        create_contributing_factor(
+            db,
+            "cf-1",
+            &CreateContributingFactorRequest {
+                incident_id: incident_id.to_string(),
+                category: "External".to_string(),
+                description: "Slack had a global service disruption".to_string(),
+                is_root: true,
+            },
+        )
+        .await
+        .expect("insert contributing factor");
+    }
+
+    async fn create_blank_postmortem(db: &sqlx::SqlitePool, incident_id: &str, pm_id: &str) -> super::Postmortem {
+        create_postmortem(
+            db,
+            pm_id,
+            &CreatePostmortemRequest {
+                incident_id: incident_id.to_string(),
+                template_id: None,
+                content: "{}".to_string(),
+            },
+        )
+        .await
+        .expect("create postmortem")
+    }
+
     #[tokio::test]
     async fn cannot_finalize_without_minimum_review_content() {
         let db = setup_db().await;
@@ -307,17 +353,7 @@ mod tests {
             .await
             .expect("insert incident");
 
-        let pm = create_postmortem(
-            &db,
-            "pm-1",
-            &CreatePostmortemRequest {
-                incident_id: incident_id.to_string(),
-                template_id: None,
-                content: "{}".to_string(),
-            },
-        )
-        .await
-        .expect("create postmortem");
+        let pm = create_blank_postmortem(&db, incident_id, "pm-1").await;
 
         let err = update_postmortem(
             &db,
@@ -348,47 +384,9 @@ mod tests {
             .await
             .expect("insert incident");
 
-        // Add at least one action item.
-        incidents::insert_action_item(
-            &db,
-            "ai-1",
-            &CreateActionItemRequest {
-                incident_id: incident_id.to_string(),
-                title: "Write vendor outage playbook".to_string(),
-                description: "".to_string(),
-                status: "Open".to_string(),
-                owner: "IT".to_string(),
-                due_date: None,
-            },
-        )
-        .await
-        .expect("insert action item");
-
-        // Add at least one contributing factor.
-        create_contributing_factor(
-            &db,
-            "cf-1",
-            &CreateContributingFactorRequest {
-                incident_id: incident_id.to_string(),
-                category: "External".to_string(),
-                description: "Slack had a global service disruption".to_string(),
-                is_root: true,
-            },
-        )
-        .await
-        .expect("insert contributing factor");
-
-        let pm = create_postmortem(
-            &db,
-            "pm-2",
-            &CreatePostmortemRequest {
-                incident_id: incident_id.to_string(),
-                template_id: None,
-                content: "{}".to_string(),
-            },
-        )
-        .await
-        .expect("create postmortem");
+        add_action_item(&db, incident_id).await;
+        add_contributing_factor(&db, incident_id).await;
+        let pm = create_blank_postmortem(&db, incident_id, "pm-2").await;
 
         let updated = update_postmortem(
             &db,
