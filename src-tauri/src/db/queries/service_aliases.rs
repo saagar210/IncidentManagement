@@ -94,31 +94,3 @@ pub async fn delete_service_alias(pool: &SqlitePool, id: &str) -> AppResult<()> 
     }
     Ok(())
 }
-
-/// Resolve a service ID from an import name using either canonical service name or aliases (case-insensitive).
-pub async fn resolve_service_id_from_name(pool: &SqlitePool, name: &str) -> AppResult<Option<String>> {
-    let n = name.trim();
-    if n.is_empty() {
-        return Ok(None);
-    }
-
-    // 1) Direct service name match.
-    let direct: Option<String> = sqlx::query_scalar("SELECT id FROM services WHERE name = ? COLLATE NOCASE")
-        .bind(n)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
-    if direct.is_some() {
-        return Ok(direct);
-    }
-
-    // 2) Alias match.
-    let alias: Option<String> = sqlx::query_scalar("SELECT service_id FROM service_aliases WHERE alias = ? COLLATE NOCASE")
-        .bind(n)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
-
-    Ok(alias)
-}
-

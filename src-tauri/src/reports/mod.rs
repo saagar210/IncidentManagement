@@ -22,27 +22,12 @@ use crate::models::quarter::QuarterConfig;
 use crate::reports::sections::discussion_points::DiscussionPoint;
 
 #[derive(Debug, Clone, serde::Deserialize)]
-struct SnapshotQuarter {
-    id: String,
-    label: String,
-    start_date: String,
-    end_date: String,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
 struct QuarterSnapshotPayloadV1 {
-    #[allow(dead_code)]
-    schema_version: i64,
-    quarter: SnapshotQuarter,
     readiness: QuarterReadinessReport,
     overrides: Vec<qf::QuarterOverride>,
     dashboard: crate::models::metrics::DashboardData,
     incident_ids: Vec<String>,
     notable_incident_ids: Vec<String>,
-    carried_over_incident_ids: Vec<String>,
-    #[allow(dead_code)]
-    generated_at: String,
-    inputs_hash: String,
 }
 
 /// Report section configuration.
@@ -92,7 +77,6 @@ struct ReportData {
     inputs_hash: String,
     facts_changed_since_finalization: bool,
     timeline_events: std::collections::HashMap<String, Vec<tme::TimelineEvent>>,
-    notable_incident_ids: Vec<String>,
     mttr: f64,
     mtta: f64,
     total_incidents: i64,
@@ -418,7 +402,6 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
         inputs_hash,
         facts_changed_since_finalization,
         timeline_events,
-        notable_incident_ids,
         mttr,
         mtta,
         total_incidents: total_incidents_metric,

@@ -94,18 +94,6 @@ pub async fn get_job(pool: &SqlitePool, id: &str) -> AppResult<Option<Enrichment
     Ok(row.map(|r| parse_row(&r)))
 }
 
-pub async fn list_jobs_for_entity(pool: &SqlitePool, entity_type: &str, entity_id: &str) -> AppResult<Vec<EnrichmentJob>> {
-    let rows = sqlx::query(
-        "SELECT * FROM enrichment_jobs WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC",
-    )
-    .bind(entity_type)
-    .bind(entity_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AppError::Database(e.to_string()))?;
-    Ok(rows.iter().map(parse_row).collect())
-}
-
 fn parse_row(row: &sqlx::sqlite::SqliteRow) -> EnrichmentJob {
     EnrichmentJob {
         id: row.get("id"),
