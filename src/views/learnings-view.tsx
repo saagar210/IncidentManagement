@@ -1,20 +1,22 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { BookOpen, Search, FileText } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { useActiveServices } from "@/hooks/use-services";
+import { usePirReviewInsights } from "@/hooks/use-pir-review";
 import { tauriInvoke } from "@/lib/tauri";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
 import { SavedFilterBar } from "@/components/incidents/saved-filter-bar";
-import { SEVERITY_COLORS } from "@/lib/constants";
+import { SEVERITY_COLORS, SEVERITY_LEVELS, STATUS_OPTIONS } from "@/lib/constants";
 import type { SeverityLevel } from "@/lib/constants";
 import type { Incident } from "@/types/incident";
 import type { IncidentFilters } from "@/types/incident";
 
 const EMPTY_FILTERS: IncidentFilters = {};
+const LEARNINGS_FILTERS_KEY = "learnings.filters.v1";
 
 function pickLearningsFilters(filters: IncidentFilters): IncidentFilters {
   return {
@@ -31,10 +33,36 @@ export function LearningsView() {
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [filters, setFilters] = useState<IncidentFilters>(EMPTY_FILTERS);
   const { data: services } = useActiveServices();
+  const { data: insights } = usePirReviewInsights();
   const { data: allTags } = useQuery({
     queryKey: ["all-tags"],
     queryFn: () => tauriInvoke<string[]>("get_all_tags"),
   });
+
+  useEffect(() => {
+    // Best-effort persistence; if local storage is unavailable or corrupt, ignore.
+    try {
+      const raw = localStorage.getItem(LEARNINGS_FILTERS_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object") {
+        setFilters(parsed as IncidentFilters);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(LEARNINGS_FILTERS_KEY, JSON.stringify(filters));
+      } catch {
+        // ignore
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [filters]);
 
   // Debounce search
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,11 +75,11 @@ export function LearningsView() {
   };
 
   const { data: results, isLoading } = useQuery({
-    queryKey: ["learnings-search", debouncedQuery, filters],
+    queryKey: ["learnings-search", debouncedQuery, pickLearningsFilters(filters)],
     queryFn: () =>
       tauriInvoke<Incident[]>("search_incidents_filtered", {
         query: debouncedQuery,
-        service_id: filters.service_id ?? null,
+        serviceId: filters.service_id ?? null,
         severity: filters.severity ?? null,
         status: filters.status ?? null,
         tag: filters.tag ?? null,
@@ -113,7 +141,7 @@ export function LearningsView() {
           className="w-40"
         >
           <option value="">All Severity</option>
-          {["Critical", "High", "Medium", "Low"].map((s) => (
+          {SEVERITY_LEVELS.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
@@ -131,7 +159,7 @@ export function LearningsView() {
           className="w-44"
         >
           <option value="">All Status</option>
-          {["Active", "Acknowledged", "Monitoring", "Resolved", "Post-Mortem"].map((s) => (
+          {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
@@ -161,6 +189,66 @@ export function LearningsView() {
         currentFilters={filters}
         onApplyFilter={(f) => setFilters(pickLearningsFilters(f))}
       />
+
+      {insights && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Review Insights</CardTitle>
+          </CardHeader>
+          <CardContent className="grid gap-3 sm:grid-cols-3">
+            <div>
+              <div className="text-xs font-medium text-muted-foreground">
+                Top Root Factor Categories
+              </div>
+              <ul className="mt-1 space-y-1 text-sm">
+                {insights.top_factor_categories.map((x) => (
+                  <li key={x.label} className="flex justify-between gap-3">
+                    <span className="truncate">{x.label}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {x.count}
+                    </span>
+                  </li>
+                ))}
+                {insights.top_factor_categories.length === 0 && (
+                  <li className="text-muted-foreground">No data</li>
+                )}
+              </ul>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-muted-foreground">
+                Top Root Factor Descriptions
+              </div>
+              <ul className="mt-1 space-y-1 text-sm">
+                {insights.top_factor_descriptions.map((x) => (
+                  <li key={x.label} className="flex justify-between gap-3">
+                    <span className="truncate">{x.label}</span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {x.count}
+                    </span>
+                  </li>
+                ))}
+                {insights.top_factor_descriptions.length === 0 && (
+                  <li className="text-muted-foreground">No data</li>
+                )}
+              </ul>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-muted-foreground">
+                External Root, No Action Items Justified
+              </div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums">
+                {insights.external_root_no_action_items_justified}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Incidents where the root factor was External and no actions were
+                justified.
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Results */}
       {isLoading && (

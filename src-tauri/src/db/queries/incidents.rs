@@ -574,12 +574,67 @@ pub async fn search_incidents_filtered(
     for b in &binds {
         q = q.bind(b);
     }
-    let rows = q
-        .fetch_all(db)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    let fts_result = q.fetch_all(db).await;
+    match fts_result {
+        Ok(rows) => Ok(rows.iter().map(parse_incident).collect()),
+        Err(_) => {
+            // Fallback to LIKE search if the FTS5 table doesn't exist yet.
+            let escaped = query
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_");
+            let pattern = format!("%{}%", escaped);
 
-    Ok(rows.iter().map(parse_incident).collect())
+            let mut like_sql = String::from(
+                "SELECT i.*, s.name as service_name \
+                 FROM incidents i \
+                 LEFT JOIN services s ON i.service_id = s.id \
+                 WHERE i.deleted_at IS NULL \
+                   AND (i.title LIKE ? ESCAPE '\\' \
+                        OR i.root_cause LIKE ? ESCAPE '\\' \
+                        OR i.resolution LIKE ? ESCAPE '\\' \
+                        OR i.notes LIKE ? ESCAPE '\\' \
+                        OR i.external_ref LIKE ? ESCAPE '\\')",
+            );
+
+            let mut like_binds: Vec<String> = Vec::new();
+            for _ in 0..5 {
+                like_binds.push(pattern.clone());
+            }
+
+            if let Some(sid) = service_id {
+                like_sql.push_str(" AND i.service_id = ?");
+                like_binds.push(sid.to_string());
+            }
+            if let Some(sev) = severity {
+                like_sql.push_str(" AND i.severity = ?");
+                like_binds.push(sev.to_string());
+            }
+            if let Some(st) = status {
+                like_sql.push_str(" AND i.status = ?");
+                like_binds.push(st.to_string());
+            }
+            if let Some(t) = tag {
+                like_sql.push_str(
+                    " AND EXISTS (SELECT 1 FROM incident_tags it WHERE it.incident_id = i.id AND it.tag = ?)",
+                );
+                like_binds.push(t.to_string());
+            }
+
+            like_sql.push_str(" ORDER BY i.started_at DESC");
+
+            let mut like_q = sqlx::query(&like_sql);
+            for b in &like_binds {
+                like_q = like_q.bind(b);
+            }
+            let rows = like_q
+                .fetch_all(db)
+                .await
+                .map_err(|e| AppError::Database(e.to_string()))?;
+
+            Ok(rows.iter().map(parse_incident).collect())
+        }
+    }
 }
 
 pub async fn bulk_update_status(db: &SqlitePool, ids: &[String], status: &str) -> AppResult<()> {
