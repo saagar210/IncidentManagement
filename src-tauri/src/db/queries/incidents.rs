@@ -710,7 +710,9 @@ pub async fn delete_action_item(db: &SqlitePool, id: &str) -> AppResult<()> {
 }
 
 pub async fn get_action_item_by_id(db: &SqlitePool, id: &str) -> AppResult<ActionItem> {
-    let row = sqlx::query("SELECT * FROM action_items WHERE id = ?")
+    // Keep this shape consistent with list_action_items(), which always provides
+    // an incident_title column (NULL when not joined).
+    let row = sqlx::query("SELECT a.*, NULL as incident_title FROM action_items a WHERE a.id = ?")
         .bind(id)
         .fetch_optional(db)
         .await
