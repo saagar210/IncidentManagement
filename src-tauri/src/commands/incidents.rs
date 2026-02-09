@@ -93,6 +93,31 @@ pub async fn search_incidents(
 }
 
 #[tauri::command]
+pub async fn search_incidents_filtered(
+    db: State<'_, SqlitePool>,
+    query: String,
+    service_id: Option<String>,
+    severity: Option<String>,
+    status: Option<String>,
+    tag: Option<String>,
+) -> Result<Vec<Incident>, AppError> {
+    if query.len() > 500 {
+        return Err(AppError::Validation(
+            "Search query too long (max 500 characters)".into(),
+        ));
+    }
+    incidents::search_incidents_filtered(
+        &*db,
+        &query,
+        service_id.as_deref(),
+        severity.as_deref(),
+        status.as_deref(),
+        tag.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn bulk_update_status(
     db: State<'_, SqlitePool>,
     ids: Vec<String>,
