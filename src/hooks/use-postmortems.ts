@@ -7,6 +7,7 @@ import type {
   PostmortemTemplate,
   CreatePostmortemRequest,
   UpdatePostmortemRequest,
+  PostmortemReadiness,
 } from "@/types/postmortem";
 
 // --- Contributing Factors ---
@@ -103,5 +104,14 @@ export function useDeletePostmortem() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["postmortem"] });
     },
+  });
+}
+
+export function usePostmortemReadiness(incidentId: string | undefined) {
+  return useQuery({
+    queryKey: ["postmortem-readiness", incidentId],
+    queryFn: () =>
+      tauriInvoke<PostmortemReadiness>("get_postmortem_readiness", { incidentId }),
+    enabled: !!incidentId,
   });
 }

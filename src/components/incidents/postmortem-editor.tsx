@@ -5,6 +5,7 @@ import {
   useCreatePostmortem,
   useUpdatePostmortem,
   usePostmortemTemplates,
+  usePostmortemReadiness,
 } from "@/hooks/use-postmortems";
 import { useAiPostmortemDraft, useAiStatus } from "@/hooks/use-ai";
 import { useContributingFactors } from "@/hooks/use-postmortems";
@@ -13,6 +14,8 @@ import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarkdownEditor } from "@/components/ui/markdown-editor";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 
 interface PostmortemEditorProps {
@@ -43,6 +46,7 @@ export function PostmortemEditor({
   const { data: existingPm } = usePostmortemByIncident(incidentId);
   const { data: templates } = usePostmortemTemplates();
   const { data: factors } = useContributingFactors(incidentId);
+  const readiness = usePostmortemReadiness(incidentId);
   const { data: aiStatus } = useAiStatus();
   const createPm = useCreatePostmortem();
   const updatePm = useUpdatePostmortem();
@@ -52,6 +56,9 @@ export function PostmortemEditor({
   const [pmStatus, setPmStatus] = useState<"draft" | "review" | "final">(
     "draft"
   );
+  const [noActionItemsJustified, setNoActionItemsJustified] = useState(false);
+  const [noActionItemsJustification, setNoActionItemsJustification] =
+    useState("");
   const contentRef = useRef(content);
   contentRef.current = content;
 
@@ -65,6 +72,10 @@ export function PostmortemEditor({
         setContent(existingPm.content === "{}" ? "" : existingPm.content);
       }
       setPmStatus(existingPm.status);
+      setNoActionItemsJustified(!!existingPm.no_action_items_justified);
+      setNoActionItemsJustification(
+        existingPm.no_action_items_justification ?? ""
+      );
     }
   }, [existingPm]);
 
@@ -92,8 +103,11 @@ export function PostmortemEditor({
         req: {
           content: JSON.stringify({ markdown: contentRef.current }),
           status: pmStatus,
+          no_action_items_justified: noActionItemsJustified,
+          no_action_items_justification: noActionItemsJustification,
         },
       });
+      readiness.refetch();
       toast({ title: "Post-mortem saved" });
     } catch (err) {
       toast({
@@ -102,7 +116,14 @@ export function PostmortemEditor({
         variant: "destructive",
       });
     }
-  }, [existingPm, pmStatus, updatePm]);
+  }, [
+    existingPm,
+    noActionItemsJustification,
+    noActionItemsJustified,
+    pmStatus,
+    readiness,
+    updatePm,
+  ]);
 
   const handleAiDraft = async () => {
     try {
@@ -194,6 +215,61 @@ export function PostmortemEditor({
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
+        <Card className="border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Finalize Checklist</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            {readiness.data ? (
+              readiness.data.can_finalize ? (
+                <div className="text-muted-foreground">
+                  Ready to finalize.
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <div className="text-muted-foreground">
+                    Missing items:
+                  </div>
+                  <ul className="list-disc pl-5">
+                    {readiness.data.missing.map((m) => (
+                      <li key={m}>{m}</li>
+                    ))}
+                  </ul>
+                  <div className="text-muted-foreground">
+                    Tip: action items are managed in the “Actions & Extras” tab.
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="text-muted-foreground">
+                Readiness check unavailable until a post-mortem exists.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-2">
+          <Label>Action Items Exception</Label>
+          <div className="flex items-center gap-2">
+            <input
+              id="no-actions-justified"
+              type="checkbox"
+              checked={noActionItemsJustified}
+              onChange={(e) => setNoActionItemsJustified(e.target.checked)}
+            />
+            <label htmlFor="no-actions-justified" className="text-sm">
+              No action items are justified for this incident (requires explanation)
+            </label>
+          </div>
+          {noActionItemsJustified && (
+            <Textarea
+              value={noActionItemsJustification}
+              onChange={(e) => setNoActionItemsJustification(e.target.value)}
+              placeholder="Explain why no action items are required (e.g., pure vendor outage with no internal mitigations available)."
+            />
+          )}
+        </div>
+
         <div className="flex gap-2">
           {aiStatus?.available && (
             <Button

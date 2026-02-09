@@ -8,6 +8,12 @@ use crate::models::postmortem::{
     Postmortem, PostmortemTemplate, UpdatePostmortemRequest,
 };
 
+#[derive(serde::Serialize)]
+pub struct PostmortemReadiness {
+    pub can_finalize: bool,
+    pub missing: Vec<String>,
+}
+
 #[tauri::command]
 pub async fn list_contributing_factors(
     db: State<'_, SqlitePool>,
@@ -114,4 +120,33 @@ pub async fn list_postmortems(
     status: Option<String>,
 ) -> Result<Vec<Postmortem>, AppError> {
     postmortems::list_postmortems(&*db, status.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn get_postmortem_readiness(
+    db: State<'_, SqlitePool>,
+    incident_id: String,
+) -> Result<PostmortemReadiness, AppError> {
+    let pm = postmortems::get_postmortem_by_incident(&*db, &incident_id).await?;
+    let Some(pm) = pm else {
+        return Ok(PostmortemReadiness {
+            can_finalize: false,
+            missing: vec!["Post-mortem must be created".to_string()],
+        });
+    };
+
+    // Reuse the same server-side requirements enforced by update_postmortem().
+    let missing = postmortems::compute_readiness_missing_items(
+        &*db,
+        &pm.incident_id,
+        &pm.content,
+        pm.no_action_items_justified,
+        &pm.no_action_items_justification,
+    )
+    .await?;
+
+    Ok(PostmortemReadiness {
+        can_finalize: missing.is_empty(),
+        missing,
+    })
 }

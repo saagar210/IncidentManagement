@@ -146,6 +146,7 @@ pub fn run() {
             commands::postmortems::update_postmortem,
             commands::postmortems::delete_postmortem,
             commands::postmortems::list_postmortems,
+            commands::postmortems::get_postmortem_readiness,
             // AI
             commands::ai::get_ai_status,
             commands::ai::check_ai_health,

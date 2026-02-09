@@ -20,7 +20,13 @@ fn extract_markdown(content: &str) -> String {
     content.to_string()
 }
 
-async fn compute_finalization_missing_items(db: &SqlitePool, incident_id: &str, content: &str) -> AppResult<Vec<String>> {
+pub async fn compute_readiness_missing_items(
+    db: &SqlitePool,
+    incident_id: &str,
+    content: &str,
+    no_action_items_justified: bool,
+    no_action_items_justification: &str,
+) -> AppResult<Vec<String>> {
     let mut missing: Vec<String> = Vec::new();
 
     let md = extract_markdown(content);
@@ -39,7 +45,11 @@ async fn compute_finalization_missing_items(db: &SqlitePool, incident_id: &str, 
     let incident = incidents::get_incident_by_id(db, incident_id).await?;
     let legacy_action_items = incident.action_items.trim();
     if action_items.is_empty() && legacy_action_items.is_empty() {
-        missing.push("At least one action item (or a documented justification)".to_string());
+        if !no_action_items_justified {
+            missing.push("At least one action item (or mark as no action items justified)".to_string());
+        } else if no_action_items_justification.trim().is_empty() {
+            missing.push("No action items justification text".to_string());
+        }
     }
 
     Ok(missing)
@@ -166,9 +176,21 @@ pub async fn update_postmortem(db: &SqlitePool, id: &str, req: &UpdatePostmortem
     let content = req.content.as_ref().unwrap_or(&existing.content);
     let status = req.status.as_ref().unwrap_or(&existing.status);
     let reminder_at = req.reminder_at.as_ref().or(existing.reminder_at.as_ref());
+    let no_action_items_justified = req.no_action_items_justified.unwrap_or(existing.no_action_items_justified);
+    let no_action_items_justification = req
+        .no_action_items_justification
+        .as_deref()
+        .unwrap_or(&existing.no_action_items_justification);
 
     if status == "final" && existing.status != "final" {
-        let missing = compute_finalization_missing_items(db, &existing.incident_id, content).await?;
+        let missing = compute_readiness_missing_items(
+            db,
+            &existing.incident_id,
+            content,
+            no_action_items_justified,
+            no_action_items_justification,
+        )
+        .await?;
         if !missing.is_empty() {
             return Err(AppError::Validation(format!(
                 "Cannot finalize post-mortem: missing {}",
@@ -184,12 +206,22 @@ pub async fn update_postmortem(db: &SqlitePool, id: &str, req: &UpdatePostmortem
     };
 
     sqlx::query(
-        "UPDATE postmortems SET content=?, status=?, reminder_at=?, completed_at=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+        "UPDATE postmortems
+         SET content=?,
+             status=?,
+             reminder_at=?,
+             completed_at=?,
+             no_action_items_justified=?,
+             no_action_items_justification=?,
+             updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+         WHERE id=?"
     )
     .bind(content)
     .bind(status)
     .bind(reminder_at)
     .bind(&completed_at)
+    .bind(no_action_items_justified)
+    .bind(no_action_items_justification)
     .bind(id)
     .execute(db)
     .await
@@ -236,6 +268,12 @@ fn parse_postmortem(row: &sqlx::sqlite::SqliteRow) -> Postmortem {
         status: row.get("status"),
         reminder_at: row.get("reminder_at"),
         completed_at: row.get("completed_at"),
+        no_action_items_justified: row
+            .try_get::<bool, _>("no_action_items_justified")
+            .unwrap_or(false),
+        no_action_items_justification: row
+            .try_get::<String, _>("no_action_items_justification")
+            .unwrap_or_default(),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -362,6 +400,8 @@ mod tests {
                 content: Some("{\"markdown\":\"\"}".to_string()),
                 status: Some("final".to_string()),
                 reminder_at: None,
+                no_action_items_justified: None,
+                no_action_items_justification: None,
             },
         )
         .await
@@ -395,6 +435,8 @@ mod tests {
                 content: Some("{\"markdown\":\"# Summary\\n\\nImpact was material.\"}".to_string()),
                 status: Some("final".to_string()),
                 reminder_at: None,
+                no_action_items_justified: None,
+                no_action_items_justification: None,
             },
         )
         .await
