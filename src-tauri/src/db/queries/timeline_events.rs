@@ -196,16 +196,11 @@ mod tests {
         pool
     }
 
-    #[tokio::test]
-    async fn timeline_event_accepts_simple_timestamp_and_orders() {
-        let pool = setup_db().await;
-
-        // Use an existing seeded incident by creating one minimal incident row via insert_incident helper.
+    async fn seed_incident(pool: &sqlx::SqlitePool) -> String {
         let service_id: String = sqlx::query_scalar("SELECT id FROM services LIMIT 1")
-            .fetch_one(&pool)
+            .fetch_one(pool)
             .await
             .expect("service");
-
         let inc_id = format!("inc-{}", uuid::Uuid::new_v4());
         sqlx::query(
             "INSERT INTO incidents (id, title, service_id, severity, impact, status, started_at, detected_at, created_at, updated_at)
@@ -219,35 +214,34 @@ mod tests {
         .bind("Active")
         .bind("2026-01-01T10:00:00Z")
         .bind("2026-01-01T10:05:00Z")
-        .execute(&pool)
+        .execute(pool)
         .await
         .expect("insert incident");
+        inc_id
+    }
 
+    async fn add_event(pool: &sqlx::SqlitePool, incident_id: &str, occurred_at: &str, message: &str) {
         create_timeline_event(
-            &pool,
+            pool,
             &CreateTimelineEventRequest {
-                incident_id: inc_id.clone(),
-                occurred_at: "2026-01-01 10:06".into(),
+                incident_id: incident_id.to_string(),
+                occurred_at: occurred_at.into(),
                 source: None,
-                message: "First event".into(),
+                message: message.into(),
                 actor: None,
             },
         )
         .await
         .expect("create event");
+    }
 
-        create_timeline_event(
-            &pool,
-            &CreateTimelineEventRequest {
-                incident_id: inc_id.clone(),
-                occurred_at: "2026-01-01T10:07:00Z".into(),
-                source: None,
-                message: "Second event".into(),
-                actor: None,
-            },
-        )
-        .await
-        .expect("create event");
+    #[tokio::test]
+    async fn timeline_event_accepts_simple_timestamp_and_orders() {
+        let pool = setup_db().await;
+
+        let inc_id = seed_incident(&pool).await;
+        add_event(&pool, &inc_id, "2026-01-01 10:06", "First event").await;
+        add_event(&pool, &inc_id, "2026-01-01T10:07:00Z", "Second event").await;
 
         let events = list_timeline_events_for_incident(&pool, &inc_id)
             .await

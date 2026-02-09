@@ -45,6 +45,27 @@ pub async fn list_overrides_for_quarter(pool: &SqlitePool, quarter_id: &str) -> 
     Ok(rows.iter().map(parse_override).collect())
 }
 
+fn validate_override_input(
+    quarter_id: &str,
+    rule_key: &str,
+    incident_id: &str,
+    reason: &str,
+) -> AppResult<()> {
+    if quarter_id.trim().is_empty() {
+        return Err(AppError::Validation("quarter_id is required".into()));
+    }
+    if rule_key.trim().is_empty() {
+        return Err(AppError::Validation("rule_key is required".into()));
+    }
+    if incident_id.trim().is_empty() {
+        return Err(AppError::Validation("incident_id is required".into()));
+    }
+    if reason.trim().is_empty() {
+        return Err(AppError::Validation("Override reason is required".into()));
+    }
+    Ok(())
+}
+
 pub async fn upsert_override(
     pool: &SqlitePool,
     quarter_id: &str,
@@ -53,12 +74,7 @@ pub async fn upsert_override(
     reason: &str,
     approved_by: &str,
 ) -> AppResult<QuarterOverride> {
-    if quarter_id.trim().is_empty() || rule_key.trim().is_empty() || incident_id.trim().is_empty() {
-        return Err(AppError::Validation("quarter_id, rule_key, incident_id are required".into()));
-    }
-    if reason.trim().is_empty() {
-        return Err(AppError::Validation("Override reason is required".into()));
-    }
+    validate_override_input(quarter_id, rule_key, incident_id, reason)?;
 
     let existing_id: Option<String> = sqlx::query_scalar(
         "SELECT id FROM quarter_readiness_overrides WHERE quarter_id = ? AND rule_key = ? AND incident_id = ?",
@@ -70,19 +86,17 @@ pub async fn upsert_override(
     .await
     .map_err(|e| AppError::Database(e.to_string()))?;
 
-    let exists = existing_id.is_some();
-    let id = existing_id.unwrap_or_else(|| format!("qov-{}", uuid::Uuid::new_v4()));
-    if exists {
-        sqlx::query(
-            "UPDATE quarter_readiness_overrides SET reason = ?, approved_by = ? WHERE id = ?",
-        )
-        .bind(reason.trim())
-        .bind(approved_by)
-        .bind(&id)
-        .execute(pool)
-        .await
-        .map_err(|e| AppError::Database(e.to_string()))?;
+    let id = if let Some(id) = existing_id {
+        sqlx::query("UPDATE quarter_readiness_overrides SET reason = ?, approved_by = ? WHERE id = ?")
+            .bind(reason.trim())
+            .bind(approved_by)
+            .bind(&id)
+            .execute(pool)
+            .await
+            .map_err(|e| AppError::Database(e.to_string()))?;
+        id
     } else {
+        let id = format!("qov-{}", uuid::Uuid::new_v4());
         sqlx::query(
             "INSERT INTO quarter_readiness_overrides (id, quarter_id, rule_key, incident_id, reason, approved_by) VALUES (?, ?, ?, ?, ?, ?)",
         )
@@ -95,14 +109,15 @@ pub async fn upsert_override(
         .execute(pool)
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
-    }
+        id
+    };
 
     let row = sqlx::query("SELECT * FROM quarter_readiness_overrides WHERE id = ?")
         .bind(&id)
         .fetch_one(pool)
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;
-    Ok(parse_override(&row))
+    return Ok(parse_override(&row));
 }
 
 pub async fn delete_override(pool: &SqlitePool, id: &str) -> AppResult<()> {

@@ -97,7 +97,8 @@ pub async fn delete_quarter_override(
     db: State<'_, SqlitePool>,
     id: String,
 ) -> Result<(), AppError> {
-    quarter_finalization::delete_override(&*db, &id).await
+    quarter_finalization::delete_override(&*db, &id).await?;
+    Ok(())
 }
 
 #[tauri::command]

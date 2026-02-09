@@ -369,24 +369,47 @@ async fn insert_imported_incident(
     req.validate()?;
     incidents::insert_incident(db, &id, &req).await?;
 
+    async fn record_import_fact(
+        db: &SqlitePool,
+        incident_id: &str,
+        field_name: &str,
+        meta_json: &str,
+    ) -> Result<(), AppError> {
+        provenance::insert_field_provenance(
+            db,
+            &provenance::FieldProvenanceInsert {
+                entity_type: "incident",
+                entity_id: incident_id,
+                field_name,
+                source_type: "import",
+                source_ref: "csv",
+                source_version: "",
+                input_hash: "",
+                meta_json,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+
     // Record provenance for key imported facts.
     let meta = serde_json::json!({
         "source": "csv",
     })
     .to_string();
-    provenance::insert_field_provenance(db, "incident", &id, "service_id", "import", "csv", "", "", &meta).await?;
-    provenance::insert_field_provenance(db, "incident", &id, "severity", "import", "csv", "", "", &meta).await?;
-    provenance::insert_field_provenance(db, "incident", &id, "impact", "import", "csv", "", "", &meta).await?;
-    provenance::insert_field_provenance(db, "incident", &id, "status", "import", "csv", "", "", &meta).await?;
-    provenance::insert_field_provenance(db, "incident", &id, "started_at", "import", "csv", "", "", &meta).await?;
-    provenance::insert_field_provenance(db, "incident", &id, "detected_at", "import", "csv", "", "", &meta).await?;
+    record_import_fact(db, &id, "service_id", &meta).await?;
+    record_import_fact(db, &id, "severity", &meta).await?;
+    record_import_fact(db, &id, "impact", &meta).await?;
+    record_import_fact(db, &id, "status", &meta).await?;
+    record_import_fact(db, &id, "started_at", &meta).await?;
+    record_import_fact(db, &id, "detected_at", &meta).await?;
     if let Some(ref resolved_at) = incident.resolved_at {
         if !resolved_at.trim().is_empty() {
-            provenance::insert_field_provenance(db, "incident", &id, "resolved_at", "import", "csv", "", "", &meta).await?;
+            record_import_fact(db, &id, "resolved_at", &meta).await?;
         }
     }
     if !incident.external_ref.trim().is_empty() {
-        provenance::insert_field_provenance(db, "incident", &id, "external_ref", "import", "csv", "", "", &meta).await?;
+        record_import_fact(db, &id, "external_ref", &meta).await?;
     }
 
     Ok(())
@@ -522,7 +545,20 @@ async fn update_existing_from_import(
     })
     .to_string();
     for f in changed_fields {
-        provenance::insert_field_provenance(db, "incident", id, f, "import", "csv", "", "", &meta).await?;
+        provenance::insert_field_provenance(
+            db,
+            &provenance::FieldProvenanceInsert {
+                entity_type: "incident",
+                entity_id: id,
+                field_name: f,
+                source_type: "import",
+                source_ref: "csv",
+                source_version: "",
+                input_hash: "",
+                meta_json: &meta,
+            },
+        )
+        .await?;
     }
 
     Ok(UpsertOutcome::Updated)

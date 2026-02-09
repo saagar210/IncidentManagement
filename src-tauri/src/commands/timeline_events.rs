@@ -25,7 +25,8 @@ pub async fn delete_timeline_event(
     db: State<'_, SqlitePool>,
     id: String,
 ) -> Result<(), AppError> {
-    timeline_events::delete_timeline_event(&*db, &id).await
+    timeline_events::delete_timeline_event(&*db, &id).await?;
+    Ok(())
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -16,21 +16,26 @@ pub struct FieldProvenance {
     pub recorded_at: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct FieldProvenanceInsert<'a> {
+    pub entity_type: &'a str,
+    pub entity_id: &'a str,
+    pub field_name: &'a str,
+    pub source_type: &'a str, // manual | import | computed | ai
+    pub source_ref: &'a str,
+    pub source_version: &'a str,
+    pub input_hash: &'a str,
+    pub meta_json: &'a str,
+}
+
 pub async fn insert_field_provenance(
     pool: &SqlitePool,
-    entity_type: &str,
-    entity_id: &str,
-    field_name: &str,
-    source_type: &str,
-    source_ref: &str,
-    source_version: &str,
-    input_hash: &str,
-    meta_json: &str,
+    req: &FieldProvenanceInsert<'_>,
 ) -> AppResult<()> {
-    if entity_type.trim().is_empty() || entity_id.trim().is_empty() || field_name.trim().is_empty() {
+    if req.entity_type.trim().is_empty() || req.entity_id.trim().is_empty() || req.field_name.trim().is_empty() {
         return Err(AppError::Validation("Provenance entity_type/entity_id/field_name are required".into()));
     }
-    if source_type.trim().is_empty() {
+    if req.source_type.trim().is_empty() {
         return Err(AppError::Validation("Provenance source_type is required".into()));
     }
 
@@ -40,14 +45,14 @@ pub async fn insert_field_provenance(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(field_name)
-    .bind(source_type)
-    .bind(source_ref)
-    .bind(source_version)
-    .bind(input_hash)
-    .bind(meta_json)
+    .bind(req.entity_type)
+    .bind(req.entity_id)
+    .bind(req.field_name)
+    .bind(req.source_type)
+    .bind(req.source_ref)
+    .bind(req.source_version)
+    .bind(req.input_hash)
+    .bind(req.meta_json)
     .execute(pool)
     .await
     .map_err(|e| AppError::Database(e.to_string()))?;

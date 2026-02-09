@@ -51,7 +51,7 @@ fn incident_missing_required_fields(inc: &Incident) -> Vec<&'static str> {
     if is_empty(&inc.detected_at) {
         missing.push("detected_at");
     }
-    missing
+    return missing;
 }
 
 fn incident_has_timestamp_ordering_issue(inc: &Incident) -> bool {
@@ -90,32 +90,17 @@ fn incident_is_carried_over(inc: &Incident, quarter_end: &str) -> bool {
     }
 }
 
-#[tauri::command]
-pub async fn get_quarter_readiness(
-    db: State<'_, SqlitePool>,
-    quarter_id: String,
-) -> Result<QuarterReadinessReport, AppError> {
-    compute_quarter_readiness(&*db, &quarter_id).await
-}
-
-pub async fn compute_quarter_readiness(
-    db: &SqlitePool,
-    quarter_id: &str,
-) -> Result<QuarterReadinessReport, AppError> {
-    let quarter = settings::get_quarter_by_id(db, quarter_id).await?;
-    let quarter_dates = Some((quarter.start_date.clone(), quarter.end_date.clone()));
-
-    // No additional filters: readiness is quarter-scoped, and incidents are included by detected_at.
-    let filters = IncidentFilters::default();
-    let incs = incidents::list_incidents(db, &filters, quarter_dates).await?;
-
+fn analyze_quarter_incidents(
+    incs: &[Incident],
+    quarter_end: &str,
+) -> (i64, Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut missing_required: Vec<String> = Vec::new();
     let mut bad_ordering: Vec<String> = Vec::new();
     let mut resolved_missing_ts: Vec<String> = Vec::new();
     let mut carried_over: Vec<String> = Vec::new();
 
     let mut ready = 0_i64;
-    for inc in &incs {
+    for inc in incs {
         let mut ok = true;
 
         if !incident_missing_required_fields(inc).is_empty() {
@@ -130,7 +115,7 @@ pub async fn compute_quarter_readiness(
             resolved_missing_ts.push(inc.id.clone());
             ok = false;
         }
-        if inc.status != "Resolved" && incident_is_carried_over(inc, &quarter.end_date) {
+        if inc.status != "Resolved" && incident_is_carried_over(inc, quarter_end) {
             carried_over.push(inc.id.clone());
             // carried-over is a warning, not a hard failure for readiness.
         }
@@ -140,9 +125,15 @@ pub async fn compute_quarter_readiness(
         }
     }
 
-    let total = incs.len() as i64;
-    let needs_attention = total - ready;
+    (ready, missing_required, bad_ordering, resolved_missing_ts, carried_over)
+}
 
+fn build_findings(
+    missing_required: Vec<String>,
+    bad_ordering: Vec<String>,
+    resolved_missing_ts: Vec<String>,
+    carried_over: Vec<String>,
+) -> Vec<ReadinessFinding> {
     let mut findings: Vec<ReadinessFinding> = Vec::new();
     if !missing_required.is_empty() {
         findings.push(ReadinessFinding {
@@ -180,13 +171,48 @@ pub async fn compute_quarter_readiness(
             remediation: "Confirm these are correct and ensure the quarterly packet includes a carried-over section with current status/context.".into(),
         });
     }
+    return findings;
+}
 
-    Ok(QuarterReadinessReport {
+#[tauri::command]
+pub async fn get_quarter_readiness(
+    db: State<'_, SqlitePool>,
+    quarter_id: String,
+) -> Result<QuarterReadinessReport, AppError> {
+    let report = compute_quarter_readiness(&*db, &quarter_id).await?;
+    Ok(report)
+}
+
+pub async fn compute_quarter_readiness(
+    db: &SqlitePool,
+    quarter_id: &str,
+) -> Result<QuarterReadinessReport, AppError> {
+    let quarter = settings::get_quarter_by_id(db, quarter_id).await?;
+    let quarter_dates = Some((quarter.start_date.clone(), quarter.end_date.clone()));
+
+    // No additional filters: readiness is quarter-scoped, and incidents are included by detected_at.
+    let filters = IncidentFilters::default();
+    let incs = incidents::list_incidents(db, &filters, quarter_dates).await?;
+
+    let (ready, missing_required, bad_ordering, resolved_missing_ts, carried_over) =
+        analyze_quarter_incidents(&incs, &quarter.end_date);
+
+    let total = incs.len() as i64;
+    let needs_attention = total - ready;
+
+    let findings = build_findings(
+        missing_required,
+        bad_ordering,
+        resolved_missing_ts,
+        carried_over,
+    );
+
+    return Ok(QuarterReadinessReport {
         quarter_id: quarter_id.to_string(),
         quarter_label: quarter.label,
         total_incidents: total,
         ready_incidents: ready,
         needs_attention_incidents: needs_attention,
         findings,
-    })
+    });
 }

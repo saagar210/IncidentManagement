@@ -603,11 +603,7 @@ mod tests {
         pool
     }
 
-    #[tokio::test]
-    async fn dashboard_quarter_includes_by_detected_at() {
-        let db = test_db().await;
-
-        // Quarter: 2025 Q1
+    async fn seed_quarter_q1_2025(db: &SqlitePool) {
         sqlx::query(
             "INSERT INTO quarter_config (id, fiscal_year, quarter_number, start_date, end_date, label)
              VALUES (?, ?, ?, ?, ?, ?)",
@@ -618,11 +614,12 @@ mod tests {
         .bind("2025-01-01T00:00:00Z")
         .bind("2025-03-31T23:59:59Z")
         .bind("FY25 Q1")
-        .execute(&db)
+        .execute(db)
         .await
         .unwrap();
+    }
 
-        // Required FK: service
+    async fn seed_service(db: &SqlitePool) {
         sqlx::query(
             "INSERT INTO services (id, name, category, default_severity, default_impact)
              VALUES (?, ?, ?, ?, ?)",
@@ -632,10 +629,12 @@ mod tests {
         .bind("Infrastructure")
         .bind("High")
         .bind("High")
-        .execute(&db)
+        .execute(db)
         .await
         .unwrap();
+    }
 
+    async fn seed_boundary_incident(db: &SqlitePool) {
         // Incident started in previous year but detected in-quarter; must be counted in Q1.
         sqlx::query(
             "INSERT INTO incidents (
@@ -652,9 +651,18 @@ mod tests {
         .bind("2024-12-31T23:50:00Z")
         .bind("2025-01-01T00:10:00Z")
         .bind("2025-01-01T01:00:00Z")
-        .execute(&db)
+        .execute(db)
         .await
         .unwrap();
+    }
+
+    #[tokio::test]
+    async fn dashboard_quarter_includes_by_detected_at() {
+        let db = test_db().await;
+
+        seed_quarter_q1_2025(&db).await;
+        seed_service(&db).await;
+        seed_boundary_incident(&db).await;
 
         let filters = MetricFilters::default();
         let dash = get_dashboard_data_for_quarter(&db, Some("q1"), &filters)
