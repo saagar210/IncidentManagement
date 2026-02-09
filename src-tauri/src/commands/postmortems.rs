@@ -9,9 +9,16 @@ use crate::models::postmortem::{
 };
 
 #[derive(serde::Serialize)]
+pub struct PostmortemReadinessItem {
+    pub code: String,
+    pub label: String,
+    pub destination: String,
+}
+
+#[derive(serde::Serialize)]
 pub struct PostmortemReadiness {
     pub can_finalize: bool,
-    pub missing: Vec<String>,
+    pub missing: Vec<PostmortemReadinessItem>,
 }
 
 #[tauri::command]
@@ -131,7 +138,11 @@ pub async fn get_postmortem_readiness(
     let Some(pm) = pm else {
         return Ok(PostmortemReadiness {
             can_finalize: false,
-            missing: vec!["Post-mortem must be created".to_string()],
+            missing: vec![PostmortemReadinessItem {
+                code: "POSTMORTEM_NOT_CREATED".to_string(),
+                label: "Post-mortem must be created".to_string(),
+                destination: "postmortem".to_string(),
+            }],
         });
     };
 
@@ -147,6 +158,13 @@ pub async fn get_postmortem_readiness(
 
     Ok(PostmortemReadiness {
         can_finalize: missing.is_empty(),
-        missing,
+        missing: missing
+            .into_iter()
+            .map(|m| PostmortemReadinessItem {
+                code: m.code,
+                label: m.label,
+                destination: m.destination,
+            })
+            .collect(),
     })
 }

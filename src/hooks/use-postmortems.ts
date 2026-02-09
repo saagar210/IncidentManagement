@@ -11,7 +11,11 @@ import type {
 
 type PostmortemReadiness = {
   can_finalize: boolean;
-  missing: string[];
+  missing: Array<{
+    code: string;
+    label: string;
+    destination: "postmortem" | "analysis" | "actions";
+  }>;
 };
 
 // --- Contributing Factors ---
