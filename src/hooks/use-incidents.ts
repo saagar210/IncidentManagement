@@ -125,6 +125,7 @@ export function useCreateActionItem() {
       tauriInvoke<ActionItem>("create_action_item", { item }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["postmortem-readiness"] });
       queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
@@ -137,6 +138,7 @@ export function useUpdateActionItem() {
       tauriInvoke<ActionItem>("update_action_item", { id, item }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["postmortem-readiness"] });
       queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });
@@ -149,6 +151,7 @@ export function useDeleteActionItem() {
       tauriInvoke<void>("delete_action_item", { id }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["action-items"] });
+      queryClient.invalidateQueries({ queryKey: ["postmortem-readiness"] });
       queryClient.invalidateQueries({ queryKey: ["notification-summary"] });
     },
   });

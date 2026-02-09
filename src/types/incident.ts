@@ -101,6 +101,9 @@ export interface ActionItem {
   status: string;
   owner: string;
   due_date: string | null;
+  completed_at?: string | null;
+  outcome_notes?: string;
+  validated_at?: string | null;
   incident_title?: string;
   created_at: string;
   updated_at: string;
@@ -121,6 +124,8 @@ export interface UpdateActionItemRequest {
   status?: string;
   owner?: string;
   due_date?: string | null;
+  outcome_notes?: string;
+  validated?: boolean;
 }
 
 export interface Service {

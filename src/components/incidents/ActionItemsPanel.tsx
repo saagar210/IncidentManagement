@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { ActionItem } from "@/types/incident";
 import type { ActionItemStatus } from "@/lib/constants";
 
@@ -90,6 +91,8 @@ interface ActionItemRowProps {
   item: ActionItem;
   onCycleStatus: (item: ActionItem) => void;
   onUpdateTitle: (id: string, title: string) => void;
+  onUpdateOutcomeNotes: (id: string, notes: string) => void;
+  onToggleValidated: (item: ActionItem) => void;
   onDelete: (id: string) => void;
   isMutating: boolean;
 }
@@ -98,14 +101,19 @@ function ActionItemRow({
   item,
   onCycleStatus,
   onUpdateTitle,
+  onUpdateOutcomeNotes,
+  onToggleValidated,
   onDelete,
   isMutating,
 }: ActionItemRowProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(item.title);
+  const [showNotes, setShowNotes] = useState(false);
+  const [notes, setNotes] = useState(item.outcome_notes ?? "");
 
   const statusBadge = getStatusBadgeProps(item.status);
   const isDone = item.status === "Done";
+  const isValidated = !!item.validated_at;
 
   const handleDoubleClick = useCallback(() => {
     setEditTitle(item.title);
@@ -133,69 +141,110 @@ function ActionItemRow({
   );
 
   return (
-    <div className="flex items-center gap-3 rounded-md border px-3 py-2 transition-colors hover:bg-muted/50">
-      {/* Status badge */}
-      <Badge
-        variant={statusBadge.variant}
-        className={statusBadge.className}
-        onClick={() => onCycleStatus(item)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onCycleStatus(item);
-          }
-        }}
-      >
-        {statusBadge.icon}
-        {item.status}
-      </Badge>
+    <div className="rounded-md border px-3 py-2 transition-colors hover:bg-muted/50">
+      <div className="flex items-center gap-3">
+        {/* Status badge */}
+        <Badge
+          variant={statusBadge.variant}
+          className={statusBadge.className}
+          onClick={() => onCycleStatus(item)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onCycleStatus(item);
+            }
+          }}
+        >
+          {statusBadge.icon}
+          {item.status}
+        </Badge>
 
-      {/* Title + Owner + Due date */}
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {isEditing ? (
-          <Input
-            value={editTitle}
-            onChange={(e) => setEditTitle(e.target.value)}
-            onBlur={handleSaveTitle}
-            onKeyDown={handleKeyDown}
-            className="h-7 text-sm"
-            autoFocus
-          />
-        ) : (
-          <span
-            className={`truncate text-sm ${isDone ? "text-muted-foreground line-through" : ""}`}
-            onDoubleClick={handleDoubleClick}
-            title="Double-click to edit"
-          >
-            {item.title}
-          </span>
-        )}
-
-        <div className="flex items-center gap-3">
-          {item.owner && (
-            <span className="text-xs text-muted-foreground">{item.owner}</span>
-          )}
-          {item.due_date && (
-            <span className={`text-xs ${getDueDateClasses(item.due_date)}`}>
-              {formatDueDate(item.due_date)}
+        {/* Title + Owner + Due date */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {isEditing ? (
+            <Input
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              onBlur={handleSaveTitle}
+              onKeyDown={handleKeyDown}
+              className="h-7 text-sm"
+              autoFocus
+            />
+          ) : (
+            <span
+              className={`truncate text-sm ${isDone ? "text-muted-foreground line-through" : ""}`}
+              onDoubleClick={handleDoubleClick}
+              title="Double-click to edit"
+            >
+              {item.title}
             </span>
           )}
+
+          <div className="flex items-center gap-3">
+            {item.owner && (
+              <span className="text-xs text-muted-foreground">{item.owner}</span>
+            )}
+            {item.due_date && (
+              <span className={`text-xs ${getDueDateClasses(item.due_date)}`}>
+                {formatDueDate(item.due_date)}
+              </span>
+            )}
+            {item.completed_at && (
+              <span className="text-xs text-muted-foreground">Completed</span>
+            )}
+          </div>
         </div>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2 text-xs"
+          onClick={() => setShowNotes((v) => !v)}
+        >
+          Notes
+        </Button>
+
+        {isDone && (
+          <Button
+            type="button"
+            variant={isValidated ? "default" : "outline"}
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => onToggleValidated(item)}
+            disabled={isMutating}
+          >
+            {isValidated ? "Validated" : "Validate"}
+          </Button>
+        )}
+
+        {/* Delete button */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+          onClick={() => onDelete(item.id)}
+          disabled={isMutating}
+          aria-label={`Delete action item: ${item.title}`}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
       </div>
 
-      {/* Delete button */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-        onClick={() => onDelete(item.id)}
-        disabled={isMutating}
-        aria-label={`Delete action item: ${item.title}`}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
+      {showNotes && (
+        <div className="mt-2 space-y-2">
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Outcome notes (what changed / what was learned / what was verified)"
+            className="min-h-[80px]"
+            onBlur={() => onUpdateOutcomeNotes(item.id, notes)}
+          />
+          <div className="text-xs text-muted-foreground">Notes are saved on blur.</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -265,6 +314,49 @@ export function ActionItemsPanel({ incidentId }: ActionItemsPanelProps) {
       );
     },
     [updateMutation, toast]
+  );
+
+  const handleUpdateOutcomeNotes = useCallback(
+    (id: string, outcome_notes: string) => {
+      updateMutation.mutate(
+        { id, item: { outcome_notes } },
+        {
+          onSuccess: () => {
+            toast({ title: "Outcome notes updated" });
+          },
+          onError: (err) => {
+            toast({
+              title: "Failed to update outcome notes",
+              description: String(err),
+              variant: "destructive",
+            });
+          },
+        }
+      );
+    },
+    [toast, updateMutation]
+  );
+
+  const handleToggleValidated = useCallback(
+    (item: ActionItem) => {
+      const next = !item.validated_at;
+      updateMutation.mutate(
+        { id: item.id, item: { validated: next } },
+        {
+          onSuccess: () => {
+            toast({ title: next ? "Marked validated" : "Validation cleared" });
+          },
+          onError: (err) => {
+            toast({
+              title: "Failed to update validation",
+              description: String(err),
+              variant: "destructive",
+            });
+          },
+        }
+      );
+    },
+    [toast, updateMutation]
   );
 
   const handleDelete = useCallback(
@@ -365,6 +457,8 @@ export function ActionItemsPanel({ incidentId }: ActionItemsPanelProps) {
                 item={item}
                 onCycleStatus={handleCycleStatus}
                 onUpdateTitle={handleUpdateTitle}
+                onUpdateOutcomeNotes={handleUpdateOutcomeNotes}
+                onToggleValidated={handleToggleValidated}
                 onDelete={handleDelete}
                 isMutating={isMutating}
               />

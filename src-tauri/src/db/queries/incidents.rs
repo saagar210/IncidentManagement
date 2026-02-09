@@ -647,7 +647,7 @@ pub async fn insert_action_item(
     req: &CreateActionItemRequest,
 ) -> AppResult<ActionItem> {
     sqlx::query(
-        "INSERT INTO action_items (id, incident_id, title, description, status, owner, due_date) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO action_items (id, incident_id, title, description, status, owner, due_date, outcome_notes) VALUES (?, ?, ?, ?, ?, ?, ?, '')"
     )
     .bind(id)
     .bind(&req.incident_id)
@@ -674,20 +674,49 @@ pub async fn update_action_item(
     let description = req.description.as_ref().unwrap_or(&existing.description);
     let status = req.status.as_ref().unwrap_or(&existing.status);
     let owner = req.owner.as_ref().unwrap_or(&existing.owner);
+    let outcome_notes = req.outcome_notes.as_ref().unwrap_or(&existing.outcome_notes);
     let due_date = if req.due_date.is_some() {
         &req.due_date
     } else {
         &existing.due_date
     };
 
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let completed_at = if status == "Done" && existing.status != "Done" {
+        Some(now.clone())
+    } else if status != "Done" && existing.status == "Done" {
+        None
+    } else {
+        existing.completed_at.clone()
+    };
+
+    let validated_at = match req.validated {
+        Some(true) => Some(now.clone()),
+        Some(false) => None,
+        None => existing.validated_at.clone(),
+    };
+
     sqlx::query(
-        "UPDATE action_items SET title=?, description=?, status=?, owner=?, due_date=?, updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=?"
+        "UPDATE action_items
+         SET title=?,
+             description=?,
+             status=?,
+             owner=?,
+             due_date=?,
+             completed_at=?,
+             outcome_notes=?,
+             validated_at=?,
+             updated_at=strftime('%Y-%m-%dT%H:%M:%SZ','now')
+         WHERE id=?"
     )
     .bind(title)
     .bind(description)
     .bind(status)
     .bind(owner)
     .bind(due_date)
+    .bind(&completed_at)
+    .bind(outcome_notes)
+    .bind(&validated_at)
     .bind(id)
     .execute(db)
     .await
@@ -790,6 +819,9 @@ fn parse_action_item(row: &sqlx::sqlite::SqliteRow) -> ActionItem {
         status: row.get::<Option<String>, _>("status").unwrap_or_else(|| "Open".to_string()),
         owner: row.get::<Option<String>, _>("owner").unwrap_or_default(),
         due_date: row.get("due_date"),
+        completed_at: row.get("completed_at"),
+        outcome_notes: row.get::<Option<String>, _>("outcome_notes").unwrap_or_default(),
+        validated_at: row.get("validated_at"),
         incident_title: row.get::<Option<String>, _>("incident_title"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
@@ -798,9 +830,9 @@ fn parse_action_item(row: &sqlx::sqlite::SqliteRow) -> ActionItem {
 
 #[cfg(test)]
 mod tests {
-    use super::{bulk_update_status, get_incident_by_id, insert_incident};
+    use super::{bulk_update_status, get_incident_by_id, insert_incident, insert_action_item, update_action_item};
     use crate::db::migrations::run_migrations;
-    use crate::models::incident::CreateIncidentRequest;
+    use crate::models::incident::{CreateActionItemRequest, CreateIncidentRequest, UpdateActionItemRequest};
     use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
     use std::str::FromStr;
     use tempfile::tempdir;
@@ -891,5 +923,89 @@ mod tests {
         assert_eq!(updated.status, "Active");
         assert_eq!(updated.reopen_count, 1);
         assert!(updated.reopened_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn action_item_followthrough_fields_update_as_expected() {
+        let (_dir, pool, service_id) = setup_db().await;
+        let request = make_create_request(&service_id, "Active");
+        insert_incident(&pool, "inc-ai-1", &request)
+            .await
+            .expect("insert incident");
+
+        let created = insert_action_item(
+            &pool,
+            "ai-test-1",
+            &CreateActionItemRequest {
+                incident_id: "inc-ai-1".to_string(),
+                title: "Write incident review playbook".to_string(),
+                description: "".to_string(),
+                status: "Open".to_string(),
+                owner: "".to_string(),
+                due_date: None,
+            },
+        )
+        .await
+        .expect("insert action item");
+        assert!(created.completed_at.is_none());
+        assert!(created.validated_at.is_none());
+
+        let done = update_action_item(
+            &pool,
+            "ai-test-1",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: Some("Done".to_string()),
+                owner: None,
+                due_date: None,
+                outcome_notes: Some("Updated internal docs to clarify escalation paths.".to_string()),
+                validated: None,
+            },
+        )
+        .await
+        .expect("mark done");
+        assert_eq!(done.status, "Done");
+        assert!(done.completed_at.is_some());
+        assert_eq!(
+            done.outcome_notes,
+            "Updated internal docs to clarify escalation paths."
+        );
+
+        let validated = update_action_item(
+            &pool,
+            "ai-test-1",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: None,
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated: Some(true),
+            },
+        )
+        .await
+        .expect("validate");
+        assert!(validated.validated_at.is_some());
+
+        let reopened = update_action_item(
+            &pool,
+            "ai-test-1",
+            &UpdateActionItemRequest {
+                title: None,
+                description: None,
+                status: Some("Open".to_string()),
+                owner: None,
+                due_date: None,
+                outcome_notes: None,
+                validated: Some(false),
+            },
+        )
+        .await
+        .expect("reopen");
+        assert_eq!(reopened.status, "Open");
+        assert!(reopened.completed_at.is_none());
+        assert!(reopened.validated_at.is_none());
     }
 }
