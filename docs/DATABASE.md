@@ -228,7 +228,7 @@ SELECT severity, COUNT(*) as count
 FROM incidents
 WHERE deleted_at IS NULL AND created_at >= ? AND created_at <= ?
 GROUP BY severity
-ORDER BY FIELD(severity, 'P0', 'P1', 'P2', 'P3', 'P4');
+ORDER BY CASE severity WHEN 'P0' THEN 0 WHEN 'P1' THEN 1 WHEN 'P2' THEN 2 WHEN 'P3' THEN 3 WHEN 'P4' THEN 4 ELSE 5 END;
 
 -- 4. Heatmap: Incidents by Day of Week
 SELECT CAST(strftime('%w', started_at) AS INTEGER) as day_of_week,
