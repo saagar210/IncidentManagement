@@ -10,26 +10,7 @@ import {
   useDeleteReportHistory,
   useGenerateNarrative,
 } from "./use-reports";
-import type { ReportConfig, DiscussionPoint, ReportHistoryEntry } from "@/types/reports";
-
-const mockReportConfig: ReportConfig = {
-  quarter_id: "q1-2025",
-  fiscal_year: 2025,
-  title: "Q1 2025 Incident Report",
-  introduction: "This report covers all incidents in Q1 2025.",
-  sections: {
-    executive_summary: true,
-    metrics_overview: true,
-    incident_timeline: true,
-    incident_breakdowns: true,
-    service_reliability: true,
-    qoq_comparison: true,
-    discussion_points: true,
-    action_items: true,
-  },
-  chart_images: {},
-  format: "docx",
-};
+import type { DiscussionPoint, ReportHistoryEntry } from "@/types/reports";
 
 const mockDiscussionPoints: DiscussionPoint[] = [
   {
@@ -51,13 +32,13 @@ const mockDiscussionPoints: DiscussionPoint[] = [
 
 const mockReportHistoryEntry: ReportHistoryEntry = {
   id: "rpt-001",
-  incident_id: "inc-001",
-  filename: "incident_INC-001_2025-01-15.docx",
+  title: "Q1 2025 Incident Report",
+  quarter_id: "q1-2025",
   format: "docx",
   file_path: "/home/user/.config/incident-manager/reports/incident_INC-001_2025-01-15.docx",
   file_size_bytes: 125000,
-  sections: ["summary", "timeline", "rcause"],
-  created_at: "2025-01-15T10:30:00Z",
+  config_json: '{"sections":["summary","timeline","rcause"]}',
+  generated_at: "2025-01-15T10:30:00Z",
 };
 
 describe("useGenerateReport", () => {
@@ -84,7 +65,7 @@ describe("useSaveReport", () => {
 
 describe("useDiscussionPoints", () => {
   beforeEach(() => {
-    setMockInvokeHandler((cmd, args) => {
+    setMockInvokeHandler((cmd) => {
       if (cmd === "generate_discussion_points") {
         return mockDiscussionPoints;
       }
@@ -157,7 +138,7 @@ describe("useReportHistory", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(result.current.data![0].filename).toContain("incident_");
+    expect(result.current.data![0].title).toContain("Report");
   });
 
   it("returns empty array when no history", async () => {

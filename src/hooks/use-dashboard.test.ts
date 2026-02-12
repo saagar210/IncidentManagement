@@ -28,7 +28,7 @@ const mockHourData: HourCount[] = Array.from({ length: 24 }, (_, i) => ({
 
 describe("useIncidentHeatmap", () => {
   beforeEach(() => {
-    setMockInvokeHandler((cmd, args) => {
+    setMockInvokeHandler((cmd) => {
       if (cmd === "get_incident_heatmap") {
         return mockHeatmapData;
       }
@@ -92,7 +92,7 @@ describe("useIncidentHeatmap", () => {
 
 describe("useIncidentByHour", () => {
   beforeEach(() => {
-    setMockInvokeHandler((cmd, args) => {
+    setMockInvokeHandler((cmd) => {
       if (cmd === "get_incident_by_hour") {
         return mockHourData;
       }
@@ -149,8 +149,8 @@ describe("useDashboardConfig", () => {
   };
 
   beforeEach(() => {
-    setMockInvokeHandler((cmd, args) => {
-      if (cmd === "get_setting" && args?.key === "dashboard_card_config") {
+    setMockInvokeHandler((cmd) => {
+      if (cmd === "get_setting") {
         return JSON.stringify(mockConfig);
       }
       throw new Error(`Unexpected command: ${cmd}`);
