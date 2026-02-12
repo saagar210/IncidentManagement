@@ -294,7 +294,7 @@ try {
 } catch (error: AppError) {
   switch (error.code) {
     case 'ValidationError':
-      showForm InputError(error.message);
+      showFormInputError(error.message);
       break;
     case 'NotFoundError':
       showWarning('Item was deleted, refreshing...');
