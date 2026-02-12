@@ -54,7 +54,7 @@ describe("useGenerateReport", () => {
 
 describe("useSaveReport", () => {
   it("creates mutation without errors", () => {
-    const { result } = renderHook(() => useSaveReport(), {
+    const { result } = renderHook(function() { return useSaveReport() }, {
       wrapper: createHookWrapper(),
     });
 
