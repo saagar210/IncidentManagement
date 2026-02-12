@@ -81,7 +81,7 @@ Incident Management is a **local-first, offline-capable desktop application** bu
 | Serialization | serde/serde_json | 1.x | JSON handling |
 | Error Handling | thiserror | 2 | Error types |
 | AI Client | ollama-rs | 0.3 | LLM integration |
-| Reports | docx-rs + genpdf | 0.4 | DOCX/PDF generation |
+| Reports | docx-rs, genpdf | 0.4, 0.2 | DOCX/PDF generation |
 | Utilities | uuid, chrono | Latest | IDs, dates |
 
 ---
