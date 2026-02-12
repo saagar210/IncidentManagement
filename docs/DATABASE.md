@@ -42,7 +42,7 @@ description TEXT,                 -- Max 10,000 chars
 severity TEXT NOT NULL,           -- CHECK: P0|P1|P2|P3|P4
 impact TEXT NOT NULL,             -- CHECK: low|medium|high|critical
 priority TEXT GENERATED,          -- Computed: max(severity, impact)
-status TEXT NOT NULL DEFAULT,     -- CHECK: active|acknowledged|monitoring|resolved|post-mortem
+status TEXT NOT NULL DEFAULT 'active',     -- CHECK: active|acknowledged|monitoring|resolved|post-mortem
 affected_systems TEXT,            -- JSON array: ["system1", "system2"]
 root_cause TEXT,                  -- Max 5,000 chars
 resolution TEXT,                  -- Max 5,000 chars
