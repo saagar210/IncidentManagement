@@ -113,8 +113,6 @@ mod tests {
     /// Test: SLA on-track status (within window)
     #[test]
     fn test_sla_status_on_track() {
-        let acknowledged_at = "2025-01-15T10:10:00Z";
-        let detected_at = "2025-01-15T10:00:00Z";
         let mtta_target_minutes = 15;
 
         // Time to acknowledge: 10 minutes (within 15-min target)
