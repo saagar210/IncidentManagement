@@ -732,7 +732,8 @@ mod tests {
     fn test_metric_result_no_data() {
         let result = MetricResult::no_data();
         assert_eq!(result.value, 0.0);
-        assert_eq!(result.previous_value, 0.0);
-        assert!(result.formatted_value.contains("—") || result.formatted_value.contains("No")); // em-dash or "No data"
+        assert_eq!(result.previous_value, None);
+        assert_eq!(result.trend, "NoData");
+        assert_eq!(result.formatted_value, "—");
     }
 }
