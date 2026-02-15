@@ -68,8 +68,6 @@ mod tests {
     //! Unit tests for SLA definition and status computation.
     //! These tests validate SLA thresholds, status calculations, and compliance metrics.
 
-    use super::*;
-
     /// Test: SlaStatus enum variants exist
     #[test]
     fn test_sla_status_variants() {

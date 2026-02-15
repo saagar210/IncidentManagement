@@ -587,6 +587,8 @@ mod tests {
         };
         let filters = MetricFilters {
             service_ids: None,
+            min_severity: None,
+            min_impact: None,
         };
 
         let (clause, params) = build_where_clause(&range, &filters);
@@ -608,6 +610,8 @@ mod tests {
         };
         let filters = MetricFilters {
             service_ids: Some(vec!["svc-1".into(), "svc-2".into()]),
+            min_severity: None,
+            min_impact: None,
         };
 
         let (clause, params) = build_where_clause(&range, &filters);
@@ -627,6 +631,8 @@ mod tests {
         };
         let filters = MetricFilters {
             service_ids: Some(vec![]),
+            min_severity: None,
+            min_impact: None,
         };
 
         let (clause, params) = build_where_clause(&range, &filters);
