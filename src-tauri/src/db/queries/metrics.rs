@@ -708,7 +708,7 @@ mod tests {
     /// Test: calculate_trend with improvement (current > previous)
     #[test]
     fn test_calculate_trend_improvement() {
-        let trend = calculate_trend(150.0, 100.0); // MTTR increased (worse), but metric is structured
+        let trend = calculate_trend(150.0, Some(100.0)); // MTTR increased (worse), but metric is structured
         // Trend should indicate change direction
         assert!(!trend.is_empty());
     }
@@ -716,14 +716,14 @@ mod tests {
     /// Test: calculate_trend with degradation (current < previous)
     #[test]
     fn test_calculate_trend_degradation() {
-        let trend = calculate_trend(50.0, 100.0);
+        let trend = calculate_trend(50.0, Some(100.0));
         assert!(!trend.is_empty());
     }
 
     /// Test: calculate_trend with no change (current == previous)
     #[test]
     fn test_calculate_trend_no_change() {
-        let trend = calculate_trend(100.0, 100.0);
+        let trend = calculate_trend(100.0, Some(100.0));
         assert!(!trend.is_empty());
     }
 
