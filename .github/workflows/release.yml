@@ -1,0 +1,233 @@
+name: Release
+
+permissions:
+  contents: read
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.arch }}-apple-darwin
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build macOS DMG
+        working-directory: src-tauri
+        run: cargo tauri build --target ${{ matrix.arch }}
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-macos-${{ matrix.arch }}
+          path: src-tauri/target/${{ matrix.arch }}-apple-darwin/release/bundle/dmg/
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libglib2.0-dev \
+            libgtk-3-dev \
+            libgdk-pixbuf2.0-dev \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            pkg-config \
+            libssl-dev \
+            libxcb-render0-dev \
+            libxcb-xfixes0-dev \
+            patchelf
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build Linux AppImage & Deb
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-linux
+          path: |
+            src-tauri/target/release/bundle/appimage/
+            src-tauri/target/release/bundle/deb/
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Build Windows MSI
+        working-directory: src-tauri
+        run: cargo tauri build
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-windows
+          path: src-tauri/target/release/bundle/msi/
+
+  create-release:
+    needs: [build-macos, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: releases/
+
+      - name: Create Release Notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          PREVIOUS_TAG=$(git tag -l --sort=-version:refname | grep -v "^${TAG_NAME}$" | head -1)
+
+          if [ -z "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"%h - %s" $(git rev-list --max-parents=0 HEAD)..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"%h - %s" ${PREVIOUS_TAG}..HEAD)
+          fi
+
+          cat > /tmp/release_notes.md << 'EOF'
+          ## Changelog
+
+          $CHANGELOG
+
+          ## Downloads
+
+          - **macOS (Intel)**: Incident-Management-x86_64.dmg
+          - **macOS (Apple Silicon)**: Incident-Management-aarch64.dmg
+          - **Linux (AppImage)**: incident-management_*.AppImage
+          - **Linux (Debian)**: incident-management_*.deb
+          - **Windows**: Incident-Management_*.msi
+
+          ## Installation
+
+          ### macOS
+          Download the DMG file and double-click to install.
+
+          ### Linux
+          ```bash
+          # AppImage
+          chmod +x incident-management_*.AppImage
+          ./incident-management_*.AppImage
+
+          # Debian/Ubuntu
+          sudo dpkg -i incident-management_*.deb
+          ```
+
+          ### Windows
+          Download and run the MSI installer.
+
+          ## What's New
+
+          See the full changelog above for all changes in this release.
+
+          ## Requirements
+
+          - macOS 10.13+
+          - Linux (glibc 2.29+)
+          - Windows 10+
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            releases/app-macos-x86_64/*.dmg
+            releases/app-macos-aarch64/*.dmg
+            releases/app-linux/appimage/*.AppImage
+            releases/app-linux/deb/*.deb
+            releases/app-windows/msi/*.msi
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-release:
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Announce Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          echo "✅ Release $TAG_NAME published successfully!"
+          echo "📥 Download at: https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
