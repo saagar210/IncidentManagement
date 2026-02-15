@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml)
 [![Bundle Budget](https://img.shields.io/badge/bundle%20budget-enforced-brightgreen)](https://github.com/saagar210/IncidentManagement/actions/workflows/ci.yml)
-[![Codacy](https://img.shields.io/badge/codacy-project-blue?logo=codacy)](https://app.codacy.com/gh/saagar210/IncidentManagement)
 
 A local-first macOS desktop app for tracking IT incidents, running blameless post-mortems, detecting trends with AI, and generating polished DOCX/PDF reports for quarterly and annual leadership reviews.
 
@@ -183,10 +182,6 @@ ollama pull qwen3:4b          # Fast model (~3GB)
 ```
 
 The app auto-detects Ollama at `localhost:11434`. AI features appear when Ollama is running.
-
-### Optional: Enable Codacy Upload in CI
-
-The `codacy` CI job runs only on `main`. To upload analysis results to Codacy, add a repository secret named `CODACY_PROJECT_TOKEN` in GitHub settings, enable Codacy "Repository Analysis" for the project in Codacy settings, and set `upload: true` in `/Users/d/Projects/IncidentManagement/.github/workflows/ci.yml`.
 
 ### Build for Production
 
