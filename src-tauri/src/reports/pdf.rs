@@ -8,8 +8,11 @@ use genpdf::style::Style;
 use genpdf::{Document, Element, SimplePageDecorator};
 
 use crate::error::{AppError, AppResult};
+use crate::commands::quarter_review::QuarterReadinessReport;
+use crate::db::queries::quarter_finalization::{QuarterFinalization, QuarterOverride};
+use crate::db::queries::timeline_events::TimelineEvent;
 use crate::models::incident::{ActionItem, Incident};
-use crate::models::metrics::{format_minutes, format_percentage, QuarterlyTrends};
+use crate::models::metrics::{format_minutes, format_percentage, QuarterlyTrends, metric_glossary};
 use crate::models::quarter::QuarterConfig;
 use crate::reports::ReportConfig;
 
@@ -19,6 +22,12 @@ pub fn build_pdf(
     incidents: &[Incident],
     _prev_incidents: &[Incident],
     quarter: Option<&QuarterConfig>,
+    readiness: Option<&QuarterReadinessReport>,
+    overrides: &[QuarterOverride],
+    finalization: Option<&QuarterFinalization>,
+    facts_changed_since_finalization: bool,
+    inputs_hash: &str,
+    timeline_events: &std::collections::HashMap<String, Vec<TimelineEvent>>,
     mttr: f64,
     mtta: f64,
     total_incidents: i64,
@@ -69,6 +78,65 @@ pub fn build_pdf(
 
     doc.push(Break::new(1));
 
+    // Confidence and readiness (Phase 2)
+    if let Some(r) = readiness {
+        push_heading(&mut doc, "Confidence and Readiness");
+        doc.push(Paragraph::new(format!(
+            "Readiness: {} ready, {} needs attention, {} total.",
+            r.ready_incidents, r.needs_attention_incidents, r.total_incidents
+        )));
+        if let Some(fin) = finalization {
+            doc.push(Paragraph::new(format!(
+                "Finalized: {} (by {}). Inputs hash: {}",
+                fin.finalized_at, fin.finalized_by, inputs_hash
+            )));
+            if facts_changed_since_finalization {
+                doc.push(Paragraph::new(
+                    "Warning: facts changed since finalization. Metrics may differ from the frozen snapshot.",
+                ));
+            }
+        } else {
+            doc.push(Paragraph::new(format!(
+                "Not finalized. Current inputs hash: {}",
+                inputs_hash
+            )));
+        }
+        doc.push(Break::new(0.5));
+
+        if !r.findings.is_empty() {
+            push_heading(&mut doc, "Readiness Checklist");
+            for f in &r.findings {
+                doc.push(bullet(&format!(
+                    "[{}] {} ({} incident(s))",
+                    f.severity,
+                    f.message,
+                    f.incident_ids.len()
+                )));
+            }
+            doc.push(Break::new(0.5));
+        }
+
+        if !overrides.is_empty() {
+            push_heading(&mut doc, "Overrides and Known Gaps");
+            doc.push(Paragraph::new(
+                "Overrides document accepted gaps for this quarter packet. They do not change metric truth.",
+            ));
+            for o in overrides {
+                doc.push(bullet(&format!(
+                    "{} / {}: {}",
+                    o.rule_key, o.incident_id, o.reason
+                )));
+            }
+            doc.push(Break::new(0.5));
+        }
+
+        push_heading(&mut doc, "Provenance Policy");
+        doc.push(bullet("Facts: user-entered or imported fields (timestamps, service, severity/impact, status)."));
+        doc.push(bullet("Computed: metrics calculated deterministically from facts (MTTR, MTTA, trends)."));
+        doc.push(bullet("AI Enrichments: optional drafts and summaries; metrics never depend on AI output."));
+        doc.push(Break::new(1));
+    }
+
     // Executive Summary
     if config.sections.executive_summary {
         push_heading(&mut doc, "Executive Summary");
@@ -115,6 +183,18 @@ pub fn build_pdf(
         push_metric_row(&mut doc, "MTTA", &format_minutes(mtta), prev_mtta.map(|v| format_minutes(v)).as_deref());
         push_metric_row(&mut doc, "Recurrence Rate", &format_percentage(recurrence_rate), prev_recurrence.map(|v| format_percentage(v)).as_deref());
         push_metric_row(&mut doc, "Avg Tickets/Incident", &format!("{:.1}", avg_tickets), prev_tickets.map(|v| format!("{:.1}", v)).as_deref());
+
+        doc.push(Break::new(0.5));
+        push_heading(&mut doc, "Metric Definitions");
+        for def in metric_glossary() {
+            doc.push(bullet(&format!(
+                "{}: {} (Calc: {})",
+                def.name, def.definition, def.calculation
+            )));
+        }
+        doc.push(Paragraph::new(
+            "Quarter inclusion: incidents are included in-quarter based on detected_at.",
+        ));
 
         doc.push(Break::new(1));
     }
@@ -167,6 +247,18 @@ pub fn build_pdf(
                     .unwrap_or_else(|| "Ongoing".to_string());
 
                 doc.push(Paragraph::new(format!("Severity: {} | Impact: {} | Duration: {}", incident.severity, incident.impact, duration)));
+
+                if let Some(events) = timeline_events.get(&incident.id) {
+                    if !events.is_empty() {
+                        doc.push(Paragraph::new("Timeline Events:").styled(Style::new().bold()));
+                        for ev in events.iter().take(8) {
+                            let when = ev.occurred_at.get(..16).unwrap_or(&ev.occurred_at);
+                            let who = if ev.actor.trim().is_empty() { "" } else { ev.actor.as_str() };
+                            let suffix = if who.is_empty() { "".to_string() } else { format!(" ({})", who) };
+                            doc.push(bullet(&format!("{} - {}{}", when, ev.message, suffix)));
+                        }
+                    }
+                }
 
                 if !incident.root_cause.is_empty() {
                     doc.push(Paragraph::new("Root Cause:").styled(Style::new().bold()));

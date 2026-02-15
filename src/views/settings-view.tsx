@@ -10,6 +10,7 @@ import {
   useUpdateService,
   useDeleteService,
 } from "@/hooks/use-services";
+import { useServiceAliases, useCreateServiceAlias, useDeleteServiceAlias } from "@/hooks/use-service-aliases";
 import {
   useQuarters,
   useUpsertQuarter,
@@ -70,6 +71,8 @@ import type {
 import type { SlaDefinition } from "@/types/sla";
 import { OllamaConfig } from "@/components/settings/ollama-config";
 import { BackupConfig } from "@/components/settings/backup-config";
+import { tauriInvoke } from "@/lib/tauri";
+import type { ServiceAlias } from "@/types/service-aliases";
 
 // ===================== Services Tab =====================
 
@@ -696,10 +699,13 @@ function ImportDataTab() {
       });
       if (savePath) {
         await copyFile(tempPath, savePath);
+        await tauriInvoke("delete_temp_file", { tempPath });
         toast({
           title: "Export complete",
           description: `Backup saved to ${savePath}`,
         });
+      } else {
+        await tauriInvoke("delete_temp_file", { tempPath });
       }
     } catch (err) {
       toast({
@@ -1432,15 +1438,125 @@ function SlaTab() {
   );
 }
 
+// ===================== Service Aliases Tab =====================
+
+function ServiceAliasesTab() {
+  const { data: services, isLoading: servicesLoading } = useServices();
+  const { data: aliases, isLoading: aliasesLoading } = useServiceAliases();
+  const createAlias = useCreateServiceAlias();
+  const deleteAlias = useDeleteServiceAlias();
+
+  const [aliasText, setAliasText] = useState("");
+  const [serviceId, setServiceId] = useState<string>("");
+
+  const add = async () => {
+    if (!aliasText.trim() || !serviceId) return;
+    try {
+      await createAlias.mutateAsync({ alias: aliasText.trim(), service_id: serviceId });
+      setAliasText("");
+      setServiceId("");
+      toast({ title: "Alias created" });
+    } catch (err) {
+      toast({ title: "Failed to create alias", description: String(err), variant: "destructive" });
+    }
+  };
+
+  const remove = async (a: ServiceAlias) => {
+    const confirmed = window.confirm(`Delete alias "${a.alias}"?`);
+    if (!confirmed) return;
+    try {
+      await deleteAlias.mutateAsync(a.id);
+    } catch (err) {
+      toast({ title: "Failed to delete alias", description: String(err), variant: "destructive" });
+    }
+  };
+
+  if (servicesLoading || aliasesLoading) {
+    return <p className="text-sm text-muted-foreground">Loading service aliases...</p>;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">Service Aliases</h2>
+          <p className="text-sm text-muted-foreground">
+            Map import names to canonical services so CSV imports are deterministic.
+          </p>
+        </div>
+      </div>
+
+      <div className="rounded border p-4 space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Alias</label>
+            <Input value={aliasText} onChange={(e) => setAliasText(e.target.value)} placeholder="Jira service name..." />
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Canonical Service</label>
+            <Select value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
+              <option value="">Select a service...</option>
+              {services?.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex items-end">
+            <Button onClick={add} disabled={createAlias.isPending || !aliasText.trim() || !serviceId}>
+              <Plus className="h-4 w-4" />
+              Add Alias
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Alias</TableHead>
+            <TableHead>Service</TableHead>
+            <TableHead>Created</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {(aliases ?? []).map((a) => (
+            <TableRow key={a.id}>
+              <TableCell className="font-medium">{a.alias}</TableCell>
+              <TableCell>{a.service_name}</TableCell>
+              <TableCell className="text-sm text-muted-foreground">{a.created_at}</TableCell>
+              <TableCell className="text-right">
+                <Button size="icon" variant="ghost" onClick={() => remove(a)} disabled={deleteAlias.isPending}>
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+          {(!aliases || aliases.length === 0) && (
+            <TableRow>
+              <TableCell colSpan={4} className="text-center text-muted-foreground">
+                No aliases yet.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 // ===================== Settings View =====================
 
-type SettingsTab = "services" | "quarters" | "custom-fields" | "sla" | "import" | "backup" | "ai";
+type SettingsTab = "services" | "service-aliases" | "quarters" | "custom-fields" | "sla" | "import" | "backup" | "ai";
 
 export function SettingsView() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("services");
 
   const tabs: { key: SettingsTab; label: string }[] = [
     { key: "services", label: "Services" },
+    { key: "service-aliases", label: "Service Aliases" },
     { key: "quarters", label: "Quarters" },
     { key: "custom-fields", label: "Custom Fields" },
     { key: "sla", label: "SLA Targets" },
@@ -1472,6 +1588,7 @@ export function SettingsView() {
       </div>
 
       {activeTab === "services" && <ServicesTab />}
+      {activeTab === "service-aliases" && <ServiceAliasesTab />}
       {activeTab === "quarters" && <QuartersTab />}
       {activeTab === "custom-fields" && <CustomFieldsTab />}
       {activeTab === "sla" && <SlaTab />}

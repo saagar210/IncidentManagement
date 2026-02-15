@@ -21,7 +21,7 @@ pub async fn create_sla_definition(
 ) -> Result<SlaDefinition, AppError> {
     req.validate()?;
     let result = sla::create_sla_definition(&*db, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "sla_definition",
         &result.id,
@@ -29,7 +29,10 @@ pub async fn create_sla_definition(
         &format!("Created SLA definition: {} ({})", &req.name, &req.priority),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for SLA definition create: {}", e);
+    }
     Ok(result)
 }
 
@@ -41,7 +44,9 @@ pub async fn update_sla_definition(
 ) -> Result<SlaDefinition, AppError> {
     req.validate()?;
     let result = sla::update_sla_definition(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(&*db, "sla_definition", &id, "updated", "Updated SLA definition", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "sla_definition", &id, "updated", "Updated SLA definition", "").await {
+        eprintln!("Warning: failed to write audit entry for SLA definition update: {}", e);
+    }
     Ok(result)
 }
 
@@ -51,7 +56,9 @@ pub async fn delete_sla_definition(
     id: String,
 ) -> Result<(), AppError> {
     sla::delete_sla_definition(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(&*db, "sla_definition", &id, "deleted", "Deleted SLA definition", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "sla_definition", &id, "deleted", "Deleted SLA definition", "").await {
+        eprintln!("Warning: failed to write audit entry for SLA definition delete: {}", e);
+    }
     Ok(())
 }
 

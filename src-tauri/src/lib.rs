@@ -100,6 +100,26 @@ pub fn run() {
             commands::metrics::get_backlog_aging,
             commands::metrics::get_service_reliability,
             commands::metrics::get_escalation_funnel,
+            commands::metrics::get_metric_glossary,
+            // Quarterly review
+            commands::quarter_review::get_quarter_readiness,
+            commands::quarter_finalization::get_quarter_finalization_status,
+            commands::quarter_finalization::upsert_quarter_override,
+            commands::quarter_finalization::delete_quarter_override,
+            commands::quarter_finalization::finalize_quarter,
+            commands::quarter_finalization::unfinalize_quarter,
+            // Service aliases
+            commands::service_aliases::list_service_aliases,
+            commands::service_aliases::create_service_alias,
+            commands::service_aliases::delete_service_alias,
+            // Timeline events
+            commands::timeline_events::list_timeline_events_for_incident,
+            commands::timeline_events::create_timeline_event,
+            commands::timeline_events::delete_timeline_event,
+            commands::timeline_events::import_timeline_events_from_paste,
+            commands::timeline_events::import_timeline_events_from_json,
+            // Provenance
+            commands::provenance::list_field_provenance_for_entity,
             // Saved Filters
             commands::saved_filters::list_saved_filters,
             commands::saved_filters::create_saved_filter,
@@ -112,6 +132,8 @@ pub fn run() {
             commands::reports::list_report_history,
             commands::reports::delete_report_history_entry,
             commands::reports::generate_narrative,
+            // Temp files
+            commands::temp_files::delete_temp_file,
             // Roles
             commands::roles::assign_role,
             commands::roles::unassign_role,
@@ -152,6 +174,10 @@ pub fn run() {
             commands::postmortems::delete_postmortem,
             commands::postmortems::list_postmortems,
             commands::postmortems::get_postmortem_readiness,
+            // Enrichments (Phase 2)
+            commands::enrichments::run_incident_enrichment,
+            commands::enrichments::accept_enrichment_job,
+            commands::enrichments::get_incident_enrichment,
             // AI
             commands::ai::get_ai_status,
             commands::ai::check_ai_health,

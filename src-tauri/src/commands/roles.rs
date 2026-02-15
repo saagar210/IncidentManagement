@@ -21,7 +21,7 @@ pub async fn assign_role(
         req.is_primary,
     )
     .await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "incident",
         &req.incident_id,
@@ -29,14 +29,17 @@ pub async fn assign_role(
         &format!("Assigned {} as {}", &req.assignee, &req.role),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for role assign: {}", e);
+    }
     Ok(result)
 }
 
 #[tauri::command]
 pub async fn unassign_role(db: State<'_, SqlitePool>, id: String) -> Result<(), AppError> {
     roles::unassign_role(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "incident_role",
         &id,
@@ -44,7 +47,10 @@ pub async fn unassign_role(db: State<'_, SqlitePool>, id: String) -> Result<(), 
         "Unassigned role",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for role unassign: {}", e);
+    }
     Ok(())
 }
 

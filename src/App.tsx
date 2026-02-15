@@ -28,6 +28,11 @@ const ReportsView = lazy(() =>
     default: module.ReportsView,
   }))
 );
+const QuarterReviewView = lazy(() =>
+  import("@/views/quarter-review-view").then((module) => ({
+    default: module.QuarterReviewView,
+  }))
+);
 const SettingsView = lazy(() =>
   import("@/views/settings-view").then((module) => ({
     default: module.SettingsView,
@@ -116,6 +121,7 @@ function AppRoutes() {
         <Route path="/services/:id" element={<RouteSuspense><ServiceDetailView /></RouteSuspense>} />
         <Route path="/learnings" element={<RouteSuspense><LearningsView /></RouteSuspense>} />
         <Route path="/handoff" element={<RouteSuspense><ShiftHandoffView /></RouteSuspense>} />
+        <Route path="/quarter-review" element={<RouteSuspense><QuarterReviewView /></RouteSuspense>} />
         <Route path="/reports" element={<RouteSuspense><ReportsView /></RouteSuspense>} />
         <Route path="/settings" element={<RouteSuspense><SettingsView /></RouteSuspense>} />
         <Route path="/trash" element={<RouteSuspense><TrashView /></RouteSuspense>} />

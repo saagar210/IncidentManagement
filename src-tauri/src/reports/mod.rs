@@ -8,13 +8,27 @@ use std::io::Cursor;
 
 use docx_rs::*;
 use sqlx::SqlitePool;
+use base64::Engine;
+use sha2::{Digest, Sha256};
 
+use crate::commands::quarter_review::{compute_quarter_readiness, QuarterReadinessReport};
 use crate::db::queries::{incidents, settings, metrics};
+use crate::db::queries::quarter_finalization as qf;
+use crate::db::queries::timeline_events as tme;
 use crate::error::{AppError, AppResult};
 use crate::models::incident::{ActionItem, Incident, IncidentFilters};
 use crate::models::metrics::{MetricFilters, QuarterlyTrends};
 use crate::models::quarter::QuarterConfig;
 use crate::reports::sections::discussion_points::DiscussionPoint;
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct QuarterSnapshotPayloadV1 {
+    readiness: QuarterReadinessReport,
+    overrides: Vec<qf::QuarterOverride>,
+    dashboard: crate::models::metrics::DashboardData,
+    incident_ids: Vec<String>,
+    notable_incident_ids: Vec<String>,
+}
 
 /// Report section configuration.
 #[derive(Debug, Clone)]
@@ -57,6 +71,12 @@ struct ReportData {
     quarter: Option<QuarterConfig>,
     #[allow(dead_code)]
     prev_quarter: Option<QuarterConfig>,
+    readiness: Option<QuarterReadinessReport>,
+    overrides: Vec<qf::QuarterOverride>,
+    finalization: Option<qf::QuarterFinalization>,
+    inputs_hash: String,
+    facts_changed_since_finalization: bool,
+    timeline_events: std::collections::HashMap<String, Vec<tme::TimelineEvent>>,
     mttr: f64,
     mtta: f64,
     total_incidents: i64,
@@ -85,6 +105,12 @@ pub async fn generate_quarterly_report(
                 &data.incidents,
                 &data.prev_incidents,
                 data.quarter.as_ref(),
+                data.readiness.as_ref(),
+                &data.overrides,
+                data.finalization.as_ref(),
+                data.facts_changed_since_finalization,
+                &data.inputs_hash,
+                &data.timeline_events,
                 data.mttr,
                 data.mtta,
                 data.total_incidents,
@@ -181,16 +207,63 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
         None
     };
 
-    // Fetch current quarter incidents
-    let quarter_dates = quarter
-        .as_ref()
-        .map(|q| (q.start_date.clone(), q.end_date.clone()));
+    let quarter_id = config.quarter_id.as_deref();
 
-    let filters = IncidentFilters {
-        sort_order: Some("asc".to_string()),
-        ..Default::default()
+    // Readiness + overrides (best-effort; Phase 2 "killer workflow" expects them present for quarters).
+    let readiness = if let Some(qid) = quarter_id {
+        Some(compute_quarter_readiness(db, qid).await.map_err(|e| AppError::Report(format!("Readiness failed: {}", e)))?)
+    } else {
+        None
     };
-    let current_incidents = incidents::list_incidents(db, &filters, quarter_dates).await?;
+    let overrides = if let Some(qid) = quarter_id {
+        qf::list_overrides_for_quarter(db, qid).await?
+    } else {
+        vec![]
+    };
+    let finalization = if let Some(qid) = quarter_id {
+        qf::get_finalization(db, qid).await?
+    } else {
+        None
+    };
+
+    // If finalized, prefer the frozen snapshot incident membership + metrics, but only if facts haven't changed.
+    let snapshot_payload: Option<QuarterSnapshotPayloadV1> = if let Some(qid) = quarter_id {
+        if finalization.is_some() {
+            let snap = qf::get_snapshot_for_quarter(db, qid).await?;
+            if let Some(snap) = snap {
+                let payload: QuarterSnapshotPayloadV1 = serde_json::from_str(&snap.snapshot_json)
+                    .map_err(|e| AppError::Report(format!("Invalid quarter snapshot JSON: {}", e)))?;
+                Some(payload)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Fetch current quarter incidents
+    let current_incidents = if let Some(ref payload) = snapshot_payload {
+        incidents::list_incidents_by_ids(db, &payload.incident_ids).await?
+    } else {
+        let quarter_dates = quarter
+            .as_ref()
+            .map(|q| (q.start_date.clone(), q.end_date.clone()));
+        let filters = IncidentFilters {
+            sort_order: Some("asc".to_string()),
+            ..Default::default()
+        };
+        incidents::list_incidents(db, &filters, quarter_dates).await?
+    };
+
+    let inputs_hash = compute_inputs_hash_from_incidents(&current_incidents)?;
+    let facts_changed_since_finalization = finalization
+        .as_ref()
+        .map(|f| f.inputs_hash != inputs_hash)
+        .unwrap_or(false);
+
     let total_incidents = current_incidents.len() as i64;
 
     // Previous quarter incidents
@@ -207,11 +280,34 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
         vec![]
     };
 
-    // Compute metrics
-    let mttr = calc_avg_duration(&current_incidents);
-    let mtta = calc_avg_mtta(&current_incidents);
-    let recurrence_rate = calc_recurrence_rate(&current_incidents);
-    let avg_tickets = calc_avg_tickets(&current_incidents);
+    // Compute metrics (prefer frozen snapshot values when finalized and facts unchanged).
+    let (mttr, mtta, recurrence_rate, avg_tickets, total_incidents_metric) = if let Some(ref payload) = snapshot_payload {
+        if !facts_changed_since_finalization {
+            (
+                payload.dashboard.mttr.value,
+                payload.dashboard.mtta.value,
+                payload.dashboard.recurrence_rate.value,
+                payload.dashboard.avg_tickets.value,
+                payload.dashboard.total_incidents,
+            )
+        } else {
+            (
+                calc_avg_duration(&current_incidents),
+                calc_avg_mtta(&current_incidents),
+                calc_recurrence_rate(&current_incidents),
+                calc_avg_tickets(&current_incidents),
+                total_incidents,
+            )
+        }
+    } else {
+        (
+            calc_avg_duration(&current_incidents),
+            calc_avg_mtta(&current_incidents),
+            calc_recurrence_rate(&current_incidents),
+            calc_avg_tickets(&current_incidents),
+            total_incidents,
+        )
+    };
 
     let prev_mttr = if !prev_incidents.is_empty() {
         Some(calc_avg_duration(&prev_incidents))
@@ -242,14 +338,57 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
     // Get all action items
     let action_items_all = incidents::list_action_items(db, None).await?;
 
-    // Get quarterly trends via dashboard metrics
+    // Get quarterly trends via dashboard metrics (or frozen snapshot when available and consistent).
     let metric_filters = MetricFilters::default();
-    let dashboard = metrics::get_dashboard_data_for_quarter(
-        db,
-        config.quarter_id.as_deref(),
-        &metric_filters,
-    )
-    .await?;
+    let dashboard = metrics::get_dashboard_data_for_quarter(db, quarter_id, &metric_filters).await?;
+    let trends = if let Some(ref payload) = snapshot_payload {
+        if !facts_changed_since_finalization {
+            payload.dashboard.trends.clone()
+        } else {
+            dashboard.trends.clone()
+        }
+    } else {
+        dashboard.trends.clone()
+    };
+
+    let notable_incident_ids = if let Some(ref payload) = snapshot_payload {
+        payload.notable_incident_ids.clone()
+    } else {
+        top_notable_incidents(&current_incidents, 5)
+    };
+
+    let mut timeline_ids: Vec<String> = Vec::new();
+    for inc in &current_incidents {
+        if inc.priority == "P0" || inc.priority == "P1" {
+            timeline_ids.push(inc.id.clone());
+        }
+    }
+    for id in &notable_incident_ids {
+        if !timeline_ids.iter().any(|x| x == id) {
+            timeline_ids.push(id.clone());
+        }
+    }
+    let timeline_events = tme::list_timeline_events_for_incidents(db, &timeline_ids).await?;
+
+    let readiness_for_report = if let Some(ref payload) = snapshot_payload {
+        if !facts_changed_since_finalization {
+            Some(payload.readiness.clone())
+        } else {
+            readiness.clone()
+        }
+    } else {
+        readiness.clone()
+    };
+
+    let overrides_for_report = if let Some(ref payload) = snapshot_payload {
+        if !facts_changed_since_finalization {
+            payload.overrides.clone()
+        } else {
+            overrides.clone()
+        }
+    } else {
+        overrides.clone()
+    };
 
     Ok(ReportData {
         incidents: current_incidents,
@@ -257,9 +396,15 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
         action_items_all,
         quarter,
         prev_quarter,
+        readiness: readiness_for_report,
+        overrides: overrides_for_report,
+        finalization,
+        inputs_hash,
+        facts_changed_since_finalization,
+        timeline_events,
         mttr,
         mtta,
-        total_incidents,
+        total_incidents: total_incidents_metric,
         recurrence_rate,
         avg_tickets,
         prev_mttr,
@@ -267,7 +412,7 @@ async fn fetch_report_data(db: &SqlitePool, config: &ReportConfig) -> AppResult<
         prev_total,
         prev_recurrence,
         prev_tickets,
-        trends: dashboard.trends,
+        trends,
     })
 }
 
@@ -297,6 +442,20 @@ fn build_document(config: &ReportConfig, data: &ReportData) -> Docx {
     }
 
     docx = docx.add_paragraph(sections::spacer());
+
+    // Phase 2: Confidence checklist + provenance policy (quarter-centric, drives packet trust).
+    if let Some(ref readiness) = data.readiness {
+        docx = sections::confidence::build(
+            docx,
+            sections::confidence::ConfidenceSectionInput {
+                readiness,
+                overrides: &data.overrides,
+                finalization: data.finalization.as_ref(),
+                facts_changed_since_finalization: data.facts_changed_since_finalization,
+                inputs_hash: &data.inputs_hash,
+            },
+        );
+    }
 
     // Add enabled sections
     if config.sections.executive_summary {
@@ -333,7 +492,7 @@ fn build_document(config: &ReportConfig, data: &ReportData) -> Docx {
     }
 
     if config.sections.incident_breakdowns {
-        docx = sections::incident_breakdowns::build(docx, &data.incidents);
+        docx = sections::incident_breakdowns::build(docx, &data.incidents, &data.timeline_events);
     }
 
     if config.sections.service_reliability {
@@ -416,4 +575,44 @@ fn calc_avg_tickets(incidents: &[Incident]) -> f64 {
     }
     let total: f64 = incidents.iter().map(|i| i.tickets_submitted as f64).sum();
     total / incidents.len() as f64
+}
+
+fn compute_inputs_hash_from_incidents(incs: &[Incident]) -> AppResult<String> {
+    let mut rows: Vec<serde_json::Value> = incs
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "id": i.id,
+                "service_id": i.service_id,
+                "severity": i.severity,
+                "impact": i.impact,
+                "status": i.status,
+                "started_at": i.started_at,
+                "detected_at": i.detected_at,
+                "acknowledged_at": i.acknowledged_at,
+                "responded_at": i.responded_at,
+                "resolved_at": i.resolved_at,
+                "external_ref": i.external_ref,
+                "reopen_count": i.reopen_count
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+
+    let json = serde_json::to_vec(&rows)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize report inputs hash: {}", e)))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&json);
+    let digest = hasher.finalize();
+    Ok(base64::engine::general_purpose::STANDARD.encode(digest))
+}
+
+fn top_notable_incidents(incs: &[Incident], n: usize) -> Vec<String> {
+    let mut v: Vec<&Incident> = incs.iter().collect();
+    v.sort_by(|a, b| {
+        let ad = a.duration_minutes.unwrap_or(0);
+        let bd = b.duration_minutes.unwrap_or(0);
+        bd.cmp(&ad).then_with(|| a.id.cmp(&b.id))
+    });
+    v.into_iter().take(n).map(|i| i.id.clone()).collect()
 }

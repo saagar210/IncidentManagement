@@ -37,14 +37,21 @@ pub async fn create_contributing_factor(
     req.validate()?;
     let id = format!("cf-{}", uuid::Uuid::new_v4());
     let result = postmortems::create_contributing_factor(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "contributing_factor",
         &id,
         "created",
         &format!("Added contributing factor: {} ({})", &req.category, &req.description.chars().take(50).collect::<String>()),
         "",
-    ).await;
+    )
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for contributing factor create: {}",
+            e
+        );
+    }
     Ok(result)
 }
 
@@ -54,7 +61,9 @@ pub async fn delete_contributing_factor(
     id: String,
 ) -> Result<(), AppError> {
     postmortems::delete_contributing_factor(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(&*db, "contributing_factor", &id, "deleted", "Deleted contributing factor", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "contributing_factor", &id, "deleted", "Deleted contributing factor", "").await {
+        eprintln!("Warning: failed to write audit entry for contributing factor delete: {}", e);
+    }
     Ok(())
 }
 
@@ -81,14 +90,18 @@ pub async fn create_postmortem(
     req.validate()?;
     let id = format!("pm-{}", uuid::Uuid::new_v4());
     let result = postmortems::create_postmortem(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "postmortem",
         &id,
         "created",
         &format!("Created post-mortem for incident {}", &req.incident_id),
         "",
-    ).await;
+    )
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for postmortem create: {}", e);
+    }
     Ok(result)
 }
 
@@ -100,14 +113,18 @@ pub async fn update_postmortem(
 ) -> Result<Postmortem, AppError> {
     req.validate()?;
     let result = postmortems::update_postmortem(&*db, &id, &req).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "postmortem",
         &id,
         "updated",
         "Updated post-mortem",
         "",
-    ).await;
+    )
+    .await
+    {
+        eprintln!("Warning: failed to write audit entry for postmortem update: {}", e);
+    }
     Ok(result)
 }
 
@@ -117,7 +134,9 @@ pub async fn delete_postmortem(
     id: String,
 ) -> Result<(), AppError> {
     postmortems::delete_postmortem(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(&*db, "postmortem", &id, "deleted", "Deleted post-mortem", "").await;
+    if let Err(e) = audit::insert_audit_entry(&*db, "postmortem", &id, "deleted", "Deleted post-mortem", "").await {
+        eprintln!("Warning: failed to write audit entry for postmortem delete: {}", e);
+    }
     Ok(())
 }
 

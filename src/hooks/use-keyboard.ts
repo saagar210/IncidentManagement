@@ -49,7 +49,7 @@ export function useKeyboardShortcuts(options: KeyboardShortcutOptions = {}) {
             break;
           case "3":
             e.preventDefault();
-            navigate("/reports");
+            navigate("/quarter-review");
             break;
           case "4":
             e.preventDefault();

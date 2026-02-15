@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use tauri::State;
 
 use crate::db::queries::incidents;
+use crate::db::queries::provenance;
 use crate::error::AppError;
 use crate::import::column_mapper::{self, ColumnMapping, MappedIncident};
 use crate::import::csv_parser;
@@ -41,6 +42,7 @@ pub struct ImportWarning {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportResult {
     pub created: i64,
+    pub updated: i64,
     pub skipped: i64,
     pub errors: Vec<String>,
 }
@@ -50,6 +52,8 @@ pub struct ImportTemplate {
     pub id: String,
     pub name: String,
     pub column_mapping: String,
+    pub source: String,
+    pub schema_version: i64,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -164,6 +168,7 @@ pub async fn execute_csv_import(
     if rows.is_empty() {
         return Ok(ImportResult {
             created: 0,
+            updated: 0,
             skipped: 0,
             errors: vec![],
         });
@@ -173,6 +178,7 @@ pub async fn execute_csv_import(
     let services = load_service_names(&db).await?;
 
     let mut created: i64 = 0;
+    let mut updated: i64 = 0;
     let mut skipped: i64 = 0;
     let mut errors: Vec<String> = Vec::new();
 
@@ -199,8 +205,10 @@ pub async fn execute_csv_import(
         };
 
         // Insert the incident
-        match insert_imported_incident(&db, &service_id, incident).await {
-            Ok(_) => created += 1,
+        match upsert_imported_incident(&db, &service_id, incident, &file_path, idx + 1).await {
+            Ok(UpsertOutcome::Created) => created += 1,
+            Ok(UpsertOutcome::Updated) => updated += 1,
+            Ok(UpsertOutcome::NoChange) => skipped += 1,
             Err(e) => {
                 skipped += 1;
                 errors.push(format!("Row {}: {}", idx + 1, e));
@@ -210,6 +218,7 @@ pub async fn execute_csv_import(
 
     Ok(ImportResult {
         created,
+        updated,
         skipped,
         errors,
     })
@@ -292,6 +301,26 @@ async fn load_service_names(
         let name: String = row.get("name");
         map.insert(name.to_lowercase(), (id, name));
     }
+
+    // Add alias names that map to canonical services.
+    let alias_rows = sqlx::query(
+        r#"
+        SELECT sa.alias AS alias, sa.service_id AS service_id, s.name AS service_name
+        FROM service_aliases sa
+        JOIN services s ON s.id = sa.service_id
+        "#,
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| AppError::Database(e.to_string()))?;
+    for row in alias_rows {
+        let alias: String = row.get("alias");
+        let service_id: String = row.get("service_id");
+        let service_name: String = row.get("service_name");
+        map.entry(alias.to_lowercase())
+            .or_insert((service_id, service_name));
+    }
+
     Ok(map)
 }
 
@@ -340,7 +369,199 @@ async fn insert_imported_incident(
     req.validate()?;
     incidents::insert_incident(db, &id, &req).await?;
 
+    async fn record_import_fact(
+        db: &SqlitePool,
+        incident_id: &str,
+        field_name: &str,
+        meta_json: &str,
+    ) -> Result<(), AppError> {
+        provenance::insert_field_provenance(
+            db,
+            &provenance::FieldProvenanceInsert {
+                entity_type: "incident",
+                entity_id: incident_id,
+                field_name,
+                source_type: "import",
+                source_ref: "csv",
+                source_version: "",
+                input_hash: "",
+                meta_json,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+
+    // Record provenance for key imported facts.
+    let meta = serde_json::json!({
+        "source": "csv",
+    })
+    .to_string();
+    record_import_fact(db, &id, "service_id", &meta).await?;
+    record_import_fact(db, &id, "severity", &meta).await?;
+    record_import_fact(db, &id, "impact", &meta).await?;
+    record_import_fact(db, &id, "status", &meta).await?;
+    record_import_fact(db, &id, "started_at", &meta).await?;
+    record_import_fact(db, &id, "detected_at", &meta).await?;
+    if let Some(ref resolved_at) = incident.resolved_at {
+        if !resolved_at.trim().is_empty() {
+            record_import_fact(db, &id, "resolved_at", &meta).await?;
+        }
+    }
+    if !incident.external_ref.trim().is_empty() {
+        record_import_fact(db, &id, "external_ref", &meta).await?;
+    }
+
     Ok(())
+}
+
+enum UpsertOutcome {
+    Created,
+    Updated,
+    NoChange,
+}
+
+async fn upsert_imported_incident(
+    db: &SqlitePool,
+    service_id: &str,
+    incident: &MappedIncident,
+    file_path: &str,
+    row_number: usize,
+) -> Result<UpsertOutcome, AppError> {
+    let ext_ref = incident.external_ref.trim();
+    if !ext_ref.is_empty() {
+        let existing_id: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM incidents WHERE external_ref = ? AND deleted_at IS NULL LIMIT 1",
+        )
+        .bind(ext_ref)
+        .fetch_optional(db)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+        if let Some(id) = existing_id {
+            return update_existing_from_import(db, &id, service_id, incident, file_path, row_number).await;
+        }
+    }
+
+    insert_imported_incident(db, service_id, incident).await?;
+    Ok(UpsertOutcome::Created)
+}
+
+async fn update_existing_from_import(
+    db: &SqlitePool,
+    id: &str,
+    service_id: &str,
+    incident: &MappedIncident,
+    file_path: &str,
+    row_number: usize,
+) -> Result<UpsertOutcome, AppError> {
+    use crate::models::incident::UpdateIncidentRequest;
+
+    let existing = incidents::get_incident_by_id(db, id).await?;
+
+    // Conservative merge strategy:
+    // - never overwrite non-empty text fields
+    // - only fill missing facts (timestamps/service/severity/impact/status) if absent
+    let mut req = UpdateIncidentRequest {
+        title: None,
+        service_id: None,
+        severity: None,
+        impact: None,
+        status: None,
+        started_at: None,
+        detected_at: None,
+        acknowledged_at: None,
+        first_response_at: None,
+        mitigation_started_at: None,
+        responded_at: None,
+        resolved_at: None,
+        root_cause: None,
+        resolution: None,
+        tickets_submitted: None,
+        affected_users: None,
+        is_recurring: None,
+        recurrence_of: None,
+        lessons_learned: None,
+        action_items: None,
+        external_ref: None,
+        notes: None,
+    };
+
+    let mut changed_fields: Vec<&'static str> = Vec::new();
+
+    if existing.service_id.trim().is_empty() {
+        req.service_id = Some(service_id.to_string());
+        changed_fields.push("service_id");
+    }
+    if existing.severity.trim().is_empty() {
+        req.severity = Some(incident.severity.clone());
+        changed_fields.push("severity");
+    }
+    if existing.impact.trim().is_empty() {
+        req.impact = Some(incident.impact.clone());
+        changed_fields.push("impact");
+    }
+    if existing.status.trim().is_empty() {
+        req.status = Some(incident.status.clone());
+        changed_fields.push("status");
+    }
+    if existing.started_at.trim().is_empty() {
+        req.started_at = Some(incident.started_at.clone());
+        changed_fields.push("started_at");
+    }
+    if existing.detected_at.trim().is_empty() {
+        req.detected_at = Some(incident.detected_at.clone());
+        changed_fields.push("detected_at");
+    }
+    if existing.responded_at.is_none() {
+        if let Some(ref r) = incident.responded_at {
+            req.responded_at = Some(r.clone());
+            changed_fields.push("responded_at");
+        }
+    }
+    if existing.resolved_at.is_none() {
+        if let Some(ref r) = incident.resolved_at {
+            req.resolved_at = Some(r.clone());
+            changed_fields.push("resolved_at");
+        }
+    }
+    if existing.external_ref.trim().is_empty() && !incident.external_ref.trim().is_empty() {
+        req.external_ref = Some(incident.external_ref.clone());
+        changed_fields.push("external_ref");
+    }
+
+    if changed_fields.is_empty() {
+        return Ok(UpsertOutcome::NoChange);
+    }
+
+    req.validate()?;
+    incidents::update_incident(db, id, &req).await?;
+
+    // Record provenance for any filled-in facts.
+    let meta = serde_json::json!({
+        "source": "csv",
+        "file_path": file_path,
+        "row": row_number
+    })
+    .to_string();
+    for f in changed_fields {
+        provenance::insert_field_provenance(
+            db,
+            &provenance::FieldProvenanceInsert {
+                entity_type: "incident",
+                entity_id: id,
+                field_name: f,
+                source_type: "import",
+                source_ref: "csv",
+                source_version: "",
+                input_hash: "",
+                meta_json: &meta,
+            },
+        )
+        .await?;
+    }
+
+    Ok(UpsertOutcome::Updated)
 }
 
 fn parse_template_row(row: &sqlx::sqlite::SqliteRow) -> ImportTemplate {
@@ -348,6 +569,8 @@ fn parse_template_row(row: &sqlx::sqlite::SqliteRow) -> ImportTemplate {
         id: row.get("id"),
         name: row.get("name"),
         column_mapping: row.get("column_mapping"),
+        source: row.get("source"),
+        schema_version: row.get("schema_version"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }
@@ -446,5 +669,37 @@ mod tests {
             .await
             .expect("count incidents");
         assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn insert_imported_incident_records_field_provenance() {
+        let (_dir, pool) = setup_db().await;
+        let service_id: String = sqlx::query_scalar("SELECT id FROM services LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("seeded service");
+
+        let incident = mapped_incident(|inc| {
+            inc.external_ref = "JIRA-123".into();
+        });
+
+        insert_imported_incident(&pool, &service_id, &incident)
+            .await
+            .expect("insert succeeds");
+
+        let inc_id: String = sqlx::query_scalar("SELECT id FROM incidents LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("incident id");
+
+        let prov_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM field_provenance WHERE entity_type = 'incident' AND entity_id = ? AND source_type = 'import'",
+        )
+        .bind(&inc_id)
+        .fetch_one(&pool)
+        .await
+        .expect("provenance count");
+
+        assert!(prov_count >= 5, "expected provenance records, got {}", prov_count);
     }
 }

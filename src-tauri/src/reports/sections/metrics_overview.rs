@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use docx_rs::*;
 
-use crate::models::metrics::{format_minutes, format_percentage, format_decimal};
+use crate::models::metrics::{format_minutes, format_percentage, format_decimal, metric_glossary};
 use crate::reports::charts::add_chart_image;
 
-use super::{heading1, body_text, header_cell, text_cell, spacer};
+use super::{heading1, heading2, body_text, bullet_item, header_cell, text_cell, spacer};
 
 pub fn build(
     docx: Docx,
@@ -57,6 +57,18 @@ pub fn build(
             }
         }
     }
+
+    // Appendix: leadership-facing glossary for trust and repeatability.
+    docx = docx.add_paragraph(heading2("Metric Definitions"));
+    for def in metric_glossary() {
+        docx = docx.add_paragraph(bullet_item(&format!(
+            "{}: {} (Calc: {})",
+            def.name, def.definition, def.calculation
+        )));
+    }
+    docx = docx.add_paragraph(body_text(
+        "Quarter inclusion: incidents are included in-quarter based on detected_at.",
+    ));
 
     docx
 }

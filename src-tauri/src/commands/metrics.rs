@@ -5,7 +5,7 @@ use crate::db::queries::{dashboard, metrics};
 use crate::error::AppError;
 use crate::models::metrics::{
     BacklogAgingBucket, DashboardData, DayCount, EscalationFunnelEntry, HourCount, MetricFilters,
-    ServiceReliabilityScore,
+    MetricDefinition, ServiceReliabilityScore, metric_glossary,
 };
 
 #[tauri::command]
@@ -80,4 +80,9 @@ pub async fn get_escalation_funnel(
         end: end_date,
     };
     metrics::get_escalation_funnel(&*db, &range).await
+}
+
+#[tauri::command]
+pub async fn get_metric_glossary() -> Result<Vec<MetricDefinition>, AppError> {
+    Ok(metric_glossary())
 }

@@ -140,6 +140,58 @@ pub struct BacklogAgingBucket {
     pub count: i64,
 }
 
+/// Leadership-facing metric glossary entry.
+/// This is the single source of truth for report appendix + UI help text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricDefinition {
+    /// Stable identifier used by UI and reports (e.g. "mttr").
+    pub key: String,
+    pub name: String,
+    pub definition: String,
+    pub calculation: String,
+    pub inclusion: String,
+}
+
+pub fn metric_glossary() -> Vec<MetricDefinition> {
+    vec![
+        MetricDefinition {
+            key: "mttr".into(),
+            name: "MTTR (Mean Time To Resolve)".into(),
+            definition: "Average time to resolve incidents in the quarter.".into(),
+            calculation: "Average of (resolved_at - started_at) in minutes, for incidents with resolved_at.".into(),
+            inclusion: "Incidents are included in-quarter by detected_at.".into(),
+        },
+        MetricDefinition {
+            key: "mtta".into(),
+            name: "MTTA (Mean Time To Acknowledge)".into(),
+            definition: "Average time to acknowledge incidents in the quarter.".into(),
+            calculation: "Average of (acknowledged_at - detected_at) in minutes; if acknowledged_at is missing, falls back to responded_at.".into(),
+            inclusion: "Incidents are included in-quarter by detected_at.".into(),
+        },
+        MetricDefinition {
+            key: "total_incidents".into(),
+            name: "Total Incidents".into(),
+            definition: "Count of incidents detected during the quarter.".into(),
+            calculation: "COUNT(incidents) where deleted_at IS NULL and detected_at is within the quarter range.".into(),
+            inclusion: "Included in-quarter by detected_at.".into(),
+        },
+        MetricDefinition {
+            key: "recurrence_rate".into(),
+            name: "Recurrence Rate".into(),
+            definition: "Percent of incidents marked recurring during the quarter.".into(),
+            calculation: "100 * (recurring incidents / total incidents).".into(),
+            inclusion: "Included in-quarter by detected_at.".into(),
+        },
+        MetricDefinition {
+            key: "avg_tickets".into(),
+            name: "Average Tickets".into(),
+            definition: "Average number of tickets submitted per incident during the quarter.".into(),
+            calculation: "Average of tickets_submitted across in-quarter incidents.".into(),
+            inclusion: "Included in-quarter by detected_at.".into(),
+        },
+    ]
+}
+
 /// Service reliability scorecard
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceReliabilityScore {

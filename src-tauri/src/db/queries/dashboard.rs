@@ -9,9 +9,9 @@ pub async fn get_incident_heatmap(
     end_date: &str,
 ) -> AppResult<Vec<DayCount>> {
     let rows = sqlx::query(
-        "SELECT date(started_at) as day, COUNT(*) as count \
+        "SELECT date(detected_at) as day, COUNT(*) as count \
          FROM incidents \
-         WHERE started_at >= ? AND started_at <= ? \
+         WHERE detected_at >= ? AND detected_at <= ? \
          GROUP BY day \
          ORDER BY day ASC"
     )
@@ -36,17 +36,17 @@ pub async fn get_incident_by_hour(
     end_date: Option<&str>,
 ) -> AppResult<Vec<HourCount>> {
     let mut sql = String::from(
-        "SELECT CAST(strftime('%H', started_at) AS INTEGER) as hour, COUNT(*) as count \
+        "SELECT CAST(strftime('%H', detected_at) AS INTEGER) as hour, COUNT(*) as count \
          FROM incidents WHERE 1=1"
     );
     let mut binds: Vec<String> = vec![];
 
     if let Some(start) = start_date {
-        sql.push_str(" AND started_at >= ?");
+        sql.push_str(" AND detected_at >= ?");
         binds.push(start.to_string());
     }
     if let Some(end) = end_date {
-        sql.push_str(" AND started_at <= ?");
+        sql.push_str(" AND detected_at <= ?");
         binds.push(end.to_string());
     }
 

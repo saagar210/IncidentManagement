@@ -4,6 +4,7 @@ use sqlx::SqlitePool;
 use tauri::State;
 
 use crate::db::queries::report_history;
+use crate::db::queries::{incidents, quarter_finalization as qf, settings};
 use crate::error::AppError;
 use crate::models::report_history::ReportHistory;
 use crate::reports;
@@ -71,25 +72,23 @@ pub async fn generate_report(
             b64_value.as_str()
         };
 
-        match base64::engine::general_purpose::STANDARD.decode(raw_b64) {
-            Ok(bytes) => {
-                if bytes.len() > MAX_CHART_IMAGE_SIZE {
-                    return Err(AppError::Validation(format!(
-                        "Chart image '{}' too large (max 10MB decoded)", key
-                    )));
-                }
-                total_size += bytes.len();
-                if total_size > MAX_TOTAL_CHART_SIZE {
-                    return Err(AppError::Validation(
-                        "Total chart image size exceeds 50MB limit".into()
-                    ));
-                }
-                chart_images.insert(key.clone(), bytes);
-            }
-            Err(e) => {
-                eprintln!("Warning: failed to decode chart image '{}': {}", key, e);
-            }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(raw_b64)
+            .map_err(|e| {
+                AppError::Validation(format!("Invalid base64 for chart image '{}': {}", key, e))
+            })?;
+        if bytes.len() > MAX_CHART_IMAGE_SIZE {
+            return Err(AppError::Validation(format!(
+                "Chart image '{}' too large (max 10MB decoded)", key
+            )));
         }
+        total_size += bytes.len();
+        if total_size > MAX_TOTAL_CHART_SIZE {
+            return Err(AppError::Validation(
+                "Total chart image size exceeds 50MB limit".into()
+            ));
+        }
+        chart_images.insert(key.clone(), bytes);
     }
 
     // Parse format
@@ -188,6 +187,19 @@ pub async fn save_report(
         .map_err(|e| AppError::Report(format!("Failed to read file metadata: {}", e)))?;
     let file_size = metadata.len() as i64;
 
+    // Compute report inputs hash for repeatability tracking (quarter membership is by detected_at).
+    let inputs_hash = if let Some(ref qid) = quarter_id {
+        compute_quarter_inputs_hash(&*db, qid).await?
+    } else {
+        "".to_string()
+    };
+
+    let quarter_finalized_at = if let Some(ref qid) = quarter_id {
+        qf::get_finalization(&*db, qid).await?.map(|f| f.finalized_at)
+    } else {
+        None
+    };
+
     // Record in history — detect format from extension
     let format_str = if ext == "pdf" { "pdf" } else { "docx" };
     let history = report_history::insert_report_history(
@@ -198,13 +210,59 @@ pub async fn save_report(
         &save_path,
         &config_json.unwrap_or_else(|| "{}".to_string()),
         file_size,
+        &inputs_hash,
+        1,
+        quarter_finalized_at.as_deref(),
     )
     .await?;
 
-    // Clean up temp file (best-effort)
-    let _ = tokio::fs::remove_file(&temp_path).await;
+    // Clean up temp file (best-effort, but don't swallow unexpected errors silently)
+    if let Err(e) = tokio::fs::remove_file(&temp_path).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("Warning: failed to remove temp report file '{}': {}", temp_path, e);
+        }
+    }
 
     Ok(history)
+}
+
+async fn compute_quarter_inputs_hash(db: &SqlitePool, quarter_id: &str) -> Result<String, AppError> {
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    use crate::models::incident::IncidentFilters;
+
+    let q = settings::get_quarter_by_id(db, quarter_id).await?;
+    let quarter_dates = Some((q.start_date.clone(), q.end_date.clone()));
+    let filters = IncidentFilters { sort_order: Some("asc".to_string()), ..Default::default() };
+    let incs = incidents::list_incidents(db, &filters, quarter_dates).await?;
+
+    let mut rows: Vec<serde_json::Value> = incs
+        .iter()
+        .map(|i| {
+            serde_json::json!({
+                "id": i.id,
+                "service_id": i.service_id,
+                "severity": i.severity,
+                "impact": i.impact,
+                "status": i.status,
+                "started_at": i.started_at,
+                "detected_at": i.detected_at,
+                "acknowledged_at": i.acknowledged_at,
+                "responded_at": i.responded_at,
+                "resolved_at": i.resolved_at,
+                "external_ref": i.external_ref,
+                "reopen_count": i.reopen_count
+            })
+        })
+        .collect();
+    rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
+
+    let json = serde_json::to_vec(&rows)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize report inputs hash: {}", e)))?;
+    let mut hasher = Sha256::new();
+    hasher.update(&json);
+    let digest = hasher.finalize();
+    Ok(base64::engine::general_purpose::STANDARD.encode(digest))
 }
 
 #[tauri::command]

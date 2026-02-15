@@ -19,7 +19,7 @@ pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
 
     // Sort chronologically (incidents come pre-sorted but we ensure it)
     let mut sorted: Vec<&Incident> = incidents.iter().collect();
-    sorted.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    sorted.sort_by(|a, b| a.detected_at.cmp(&b.detected_at));
 
     let header_row = TableRow::new(vec![
         header_cell("Date"),
@@ -35,7 +35,7 @@ pub fn build(docx: Docx, incidents: &[Incident]) -> Docx {
     let mut rows = vec![header_row];
 
     for incident in &sorted {
-        let date = incident.started_at.get(..10).unwrap_or(&incident.started_at);
+        let date = incident.detected_at.get(..10).unwrap_or(&incident.detected_at);
         let duration = incident
             .duration_minutes
             .map(|d| format_minutes(d as f64))

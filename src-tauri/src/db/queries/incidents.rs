@@ -431,9 +431,10 @@ pub async fn list_incidents(
 
     // Date range from quarter or explicit dates
     if let Some((start, end)) = quarter_dates {
-        sql.push_str(" AND i.started_at >= ?");
+        // Quarter inclusion rule: incidents are included by detected_at.
+        sql.push_str(" AND i.detected_at >= ?");
         binds.push(start);
-        sql.push_str(" AND i.started_at <= ?");
+        sql.push_str(" AND i.detected_at <= ?");
         binds.push(end);
     } else {
         if let Some(ref date_from) = filters.date_from {
@@ -468,6 +469,40 @@ pub async fn list_incidents(
     }
 
     let rows = query
+        .fetch_all(db)
+        .await
+        .map_err(|e| AppError::Database(e.to_string()))?;
+
+    Ok(rows.iter().map(parse_incident).collect())
+}
+
+pub async fn list_incidents_by_ids(db: &SqlitePool, ids: &[String]) -> AppResult<Vec<Incident>> {
+    use sqlx::QueryBuilder;
+    use std::collections::HashSet;
+
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut seen: HashSet<&str> = HashSet::new();
+    let mut unique: Vec<&String> = Vec::new();
+    for id in ids {
+        if seen.insert(id.as_str()) {
+            unique.push(id);
+        }
+    }
+
+    let mut qb: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT i.*, s.name as service_name FROM incidents i LEFT JOIN services s ON i.service_id = s.id WHERE i.deleted_at IS NULL AND i.id IN (",
+    );
+    let mut separated = qb.separated(", ");
+    for id in unique {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(") ORDER BY i.detected_at ASC, i.started_at ASC");
+
+    let rows = qb
+        .build()
         .fetch_all(db)
         .await
         .map_err(|e| AppError::Database(e.to_string()))?;

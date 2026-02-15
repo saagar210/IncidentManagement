@@ -27,7 +27,7 @@ pub async fn create_checklist_template(
         &req.items,
     )
     .await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "checklist_template",
         &id,
@@ -35,7 +35,13 @@ pub async fn create_checklist_template(
         &format!("Created checklist template: {}", &req.name),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for checklist template create: {}",
+            e
+        );
+    }
     Ok(result)
 }
 
@@ -55,7 +61,7 @@ pub async fn update_checklist_template(
         req.items.as_deref(),
     )
     .await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "checklist_template",
         &id,
@@ -63,7 +69,13 @@ pub async fn update_checklist_template(
         "Updated checklist template",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for checklist template update: {}",
+            e
+        );
+    }
     Ok(result)
 }
 
@@ -73,7 +85,7 @@ pub async fn delete_checklist_template(
     id: String,
 ) -> Result<(), AppError> {
     checklists::delete_template(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "checklist_template",
         &id,
@@ -81,7 +93,13 @@ pub async fn delete_checklist_template(
         "Deleted checklist template",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for checklist template delete: {}",
+            e
+        );
+    }
     Ok(())
 }
 
@@ -116,7 +134,7 @@ pub async fn create_incident_checklist(
             .await?
     };
 
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "incident",
         &req.incident_id,
@@ -124,7 +142,13 @@ pub async fn create_incident_checklist(
         &format!("Created checklist: {}", &result.name),
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for incident checklist create: {}",
+            e
+        );
+    }
     Ok(result)
 }
 
@@ -142,7 +166,7 @@ pub async fn delete_incident_checklist(
     id: String,
 ) -> Result<(), AppError> {
     checklists::delete_incident_checklist(&*db, &id).await?;
-    let _ = audit::insert_audit_entry(
+    if let Err(e) = audit::insert_audit_entry(
         &*db,
         "incident_checklist",
         &id,
@@ -150,7 +174,13 @@ pub async fn delete_incident_checklist(
         "Deleted incident checklist",
         "",
     )
-    .await;
+    .await
+    {
+        eprintln!(
+            "Warning: failed to write audit entry for incident checklist delete: {}",
+            e
+        );
+    }
     Ok(())
 }
 

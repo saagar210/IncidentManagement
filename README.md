@@ -14,6 +14,14 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 
 ## Features
 
+### Quarterly Leadership Confidence (Phase 2)
+- **Quarter Review workspace**: pick a quarter and see a single, deterministic readiness/confidence breakdown for incidents and metrics
+- **Readiness gates + overrides**: critical failures must be fixed or explicitly overridden (with reason + audit trail) before quarter finalization
+- **Quarter finalization snapshot**: finalization records an `inputs_hash` so exported leadership packets can be traced to the exact fact inputs used
+- **Provenance everywhere**: key fields can be marked as manual/imported/derived/AI-enriched, and reports surface provenance alongside metrics
+- **Timeline events**: first-class event stream supporting "what happened when?" narratives and time-based metric computation
+- **Enrichment jobs (AI as glue)**: optional, provenance-recorded enrichments that improve narrative quality without changing metric truth
+
 ### Incident Tracking
 - Full CRUD for incidents with severity, impact, status, timeline, root cause, resolution, and action items
 - Auto-computed priority from a severity x impact matrix (P0-P4)
@@ -65,6 +73,8 @@ Quarterly incident review preparation typically takes hours of manual data gathe
 - **Service Trend Alerts**: Flags services with degrading reliability (50%+ incident increase week-over-week)
 - **Graceful degradation**: Health check on startup, re-check every 60s, status badge in app bar
 - Models: `qwen3:30b-a3b` (primary), `qwen3:4b` (fast)
+
+Security note: AI calls are made by the Rust backend to `localhost:11434` (Ollama). The Tauri webview is configured with a restrictive Content Security Policy (CSP).
 
 ### Post-Mortem System
 - Structured contributing factors with categories (Process, Tooling, Communication, Human Factors, External)
@@ -242,7 +252,7 @@ src-tauri/src/                # Rust backend
 
 SQLite with WAL mode. The database file is created automatically in the app data directory on first launch. Foreign keys are enforced per-connection via `SqliteConnectOptions`. Full-text search via FTS5 with sync triggers.
 
-**15 migrations** covering: incidents, services, action items, quarters, import templates, app settings, tags, custom fields, attachments, report history, SLA definitions, audit entries, service catalog (owner/tier/runbook/dependencies), roles, checklists, lifecycle states, FTS5, saved filters, post-mortems, contributing factors, stakeholder updates, and shift handoffs.
+**24 migrations** covering: incidents, services, action items, quarters + quarter finalization, import templates, app settings, tags, custom fields, attachments, report history, SLA definitions, audit entries, service catalog (owner/tier/runbook/dependencies + aliases), roles, checklists, lifecycle states, FTS5, saved filters, post-mortems + AI drafting, contributing factors, stakeholder updates, shift handoffs, timeline events, field provenance, enrichment jobs, and hardened report reproducibility (`inputs_hash`).
 
 15 services, FY27 Q1-Q4 quarters, and P0-P4 SLA defaults are seeded on first run.
 

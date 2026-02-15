@@ -1,4 +1,5 @@
 pub mod executive_summary;
+pub mod confidence;
 pub mod metrics_overview;
 pub mod incident_timeline;
 pub mod incident_breakdowns;

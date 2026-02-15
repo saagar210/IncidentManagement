@@ -4,6 +4,7 @@ import { copyFile } from "@tauri-apps/plugin-fs";
 import { useExportCsv, useExportJson } from "@/hooks/use-export";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
+import { tauriInvoke } from "@/lib/tauri";
 import type { IncidentFilters } from "@/types/incident";
 
 interface ExportMenuProps {
@@ -32,10 +33,15 @@ export function ExportMenu({ filters }: ExportMenuProps) {
 
       if (savePath) {
         await copyFile(tempPath, savePath);
+        // Best-effort cleanup of the backend temp file.
+        await tauriInvoke("delete_temp_file", { tempPath });
         toast({
           title: "Export complete",
           description: `Saved to ${savePath}`,
         });
+      } else {
+        // User cancelled: best-effort cleanup of the backend temp file.
+        await tauriInvoke("delete_temp_file", { tempPath });
       }
     } catch (err) {
       toast({
