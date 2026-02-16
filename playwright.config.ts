@@ -5,6 +5,7 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
   reporter: [["html"], ["github"]],
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   webServer: {
     command: process.env.PLAYWRIGHT_WEB_SERVER_CMD ?? "pnpm dev --host 127.0.0.1 --port 4103",
     url: process.env.PLAYWRIGHT_BASE_URL || "http://127.0.0.1:4103",
