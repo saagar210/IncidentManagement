@@ -173,6 +173,24 @@ pnpm install
 pnpm tauri dev
 ```
 
+### Normal Dev vs Lean Dev
+
+Use normal dev when you want faster restarts and don't mind local build artifacts staying on disk:
+
+```bash
+pnpm tauri dev
+```
+
+Use lean dev when disk usage matters more than restart speed. This runs the same app command, but writes heavy build output to temporary locations and removes it automatically on exit:
+
+```bash
+pnpm dev:lean
+```
+
+Tradeoff:
+- `pnpm tauri dev`: faster subsequent launches, higher persistent disk usage.
+- `pnpm dev:lean`: lower persistent disk usage, slower next launch because Rust/Vite rebuild from scratch.
+
 ### Optional: Enable AI Features
 
 ```bash
@@ -202,6 +220,20 @@ pnpm test:run
 
 # Bundle budget guard
 pnpm test:bundle
+```
+
+### Cleanup Commands
+
+Targeted cleanup (heavy build artifacts only, keeps dependencies installed):
+
+```bash
+pnpm clean:heavy
+```
+
+Full local cleanup (all reproducible local caches, including `node_modules`):
+
+```bash
+pnpm clean:full
 ```
 
 ## Project Structure

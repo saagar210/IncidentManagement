@@ -33,7 +33,7 @@ export function NotificationCenter() {
         variant="ghost"
         size="sm"
         onClick={() => setOpen((prev) => !prev)}
-        className="relative w-full justify-start gap-2 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+        className="relative w-full justify-start gap-2 text-sidebar-primary/80 hover:text-sidebar-primary"
       >
         <Bell className="h-4 w-4" />
         <span className="text-xs">Notifications</span>

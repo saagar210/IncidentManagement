@@ -35,3 +35,7 @@ src-tauri/target/
 # Environment
 .env
 .env.local
+
+playwright-report
+test-results
+.lighthouseci

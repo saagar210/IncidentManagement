@@ -69,8 +69,8 @@ export function Sidebar() {
               cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                  ? "bg-sidebar-accent text-sidebar-primary"
+                  : "text-sidebar-primary/80 hover:bg-sidebar-accent/50 hover:text-sidebar-primary"
               )
             }
           >
@@ -82,7 +82,7 @@ export function Sidebar() {
               </Badge>
             )}
             {item.shortcut && (
-              <kbd className="hidden text-[10px] text-sidebar-foreground/40 lg:inline">
+              <kbd className="hidden text-[10px] text-sidebar-primary/70 lg:inline">
                 {"\u2318"}
                 {item.shortcut}
               </kbd>
@@ -95,8 +95,8 @@ export function Sidebar() {
             cn(
               "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
               isActive
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                ? "bg-sidebar-accent text-sidebar-primary"
+                : "text-sidebar-primary/80 hover:bg-sidebar-accent/50 hover:text-sidebar-primary"
             )
           }
         >
@@ -116,7 +116,7 @@ export function Sidebar() {
           variant="ghost"
           size="sm"
           onClick={cycleTheme}
-          className="w-full justify-start gap-2 text-sidebar-foreground/70 hover:text-sidebar-foreground"
+          className="w-full justify-start gap-2 text-sidebar-primary/80 hover:text-sidebar-primary"
         >
           <ThemeIcon className="h-4 w-4" />
           <span className="text-xs">{THEME_LABELS[theme]}</span>
